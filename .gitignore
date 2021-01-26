@@ -1,0 +1,9 @@
+# ignore pycyche
+**/__pycache__/
+**/.vscode/
+**/.mypy_cache/
+build/
+dist/
+dpmd_tools.egg-info/
+docs/build/
+docs/source/_*

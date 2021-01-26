@@ -1,0 +1,16 @@
+name: dpmd_gpu
+channels:
+- deepmodeling
+dependencies:
+- python>=3.6
+- anaconda
+- numpy
+- pandas
+- pip
+- deepmd-kit=*=*cpu
+- lammps-dp=*=*cpu
+- pip:
+  - dpdata
+  - ase
+  - tqdm
+  - ssh-utilities>=0.7.2
