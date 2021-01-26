@@ -13,3 +13,12 @@ Contains tools:
 Needs to be installed in appropriate conda environment that has DeePMD-Kit
 installed! Use the environment files or install deepmd-kit from conda into
 the base environment.
+
+# Install
+
+The package must be installed in order for the submodules to be importable.
+Otherwise some scripts will not work.
+
+```
+pip install git+https://github.com/ftl-fmfi/dpmd_tools.git -e
+```

@@ -1,6 +1,20 @@
 """Compare E-V curves from ab-initio and deepMD
 
 Can also plot MTD runs structures and dataset coverage.
+
+You need to prepare directory structure for this to work:
+|-phase1
+ |-vasp
+  |-vol_10
+  |-vol_15
+  |-vol_...
+|-phase2
+ |-vasp
+  |-vol_12
+  |-vol_xy
+
+Each of vol_xy directories must contain vasp computed structure vith specified
+volume.
 """
 
 import argparse
