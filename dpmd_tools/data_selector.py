@@ -8,25 +8,23 @@ Only works for single element compounds.
 
 import argparse
 import json
-import math
 import shutil
 from collections import deque
-from itertools import combinations
 from pathlib import Path
-from typing import (Any, Callable, Iterable, Iterator, List, Optional,
-                    Sequence, Tuple)
+from typing import Any, Iterator, List, Optional, Sequence, Tuple
 
 import matplotlib._color_data as mcd
 import matplotlib.pyplot as plt
 import numpy as np
 import plotly.graph_objects as go
-import scipy
 from ase import Atoms
 from ase.ga.ofp_comparator import OFPComparator
 from dpdata import LabeledSystem
 from joblib import Parallel, delayed
 from sklearn.cluster import MiniBatchKMeans
 from tqdm import tqdm
+
+from .data import load_npy_data
 
 WORK_DIR = Path.cwd()
 
@@ -71,57 +69,13 @@ def input_parser():
     return vars(p.parse_args())
 
 
-def convert_size(size_bytes):
-   if size_bytes == 0:
-       return "0B"
-   size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
-   i = int(math.floor(math.log(size_bytes, 1024)))
-   p = math.pow(1024, i)
-   s = round(size_bytes / p, 2)
-   return "%s %s" % (s, size_name[i])
-
-
-def load_data(path: Path) -> List[Atoms]:
-
-    system = LabeledSystem()
-
-    system.from_deepmd_comp(str(path.resolve()))
-    return system.to_ase_structure()
-
-
-def cosine_distance(fp1: np.ndarray, fp2: np.ndarray):
-    """Returns the cosine distance from two fingerprints.
-    It also needs information about the number of atoms from
-    each element, which is included in "typedic".
-
-    Adapter from `ase.ga`
-
-    Warnings
-    --------
-    Works only for single element compounds!!!
-    See original ase implementations for details
-
-    See also
-    --------
-    :class:`ase.ga.ofp_comparator.OFPComparator`
-    """
-    # calculating the fingerprint norms:
-    norm1 = np.linalg.norm(fp1)
-    norm2 = np.linalg.norm(fp2)
-
-    # calculating the distance:
-    distance = np.sum(fp1 * fp2) / (norm1 * norm2)
-
-    return 0.5 * (1 - distance)
-
-
 class FingerprintDataset:
 
     def __init__(self, path: Path, comparator: OFPComparator,
                  comparator_settings: dict, batch_size: Optional[int] = None,
                  parallel: bool = False) -> None:
 
-        atoms = load_data(path)
+        atoms = load_npy_data(path)
 
         if batch_size and batch_size < len(atoms):
             self.atom_chunks = list(self._split(atoms, batch_size))
@@ -203,58 +157,6 @@ def get_data_dirs(path: Path) -> List[Path]:
             paths.append(p)
 
     return paths
-
-
-class All2All:
-    """COmpute all to all distance matrix for OPTICS clustering."""
-
-    def __init__(self, metrics: Callable[[np.ndarray, np.ndarray], float],
-                 fingerprints: np.ndarray, memmap: bool,
-                 mat_file: Optional[Path] = None) -> None:
-
-        self.metrics = metrics
-        self.memmap = memmap
-        self.dim = len(fingerprints)
-        self.indices = combinations(range(self.dim), 2)
-        self.fp = fingerprints
-
-        if memmap:
-            if not mat_file:
-                raise ValueError("must specify mat_file if memmap is True")
-            else:
-                self.mem_array = np.memmap(mat_file, dtype="float32", mode="w+",
-                                           shape=(self.dim, self.dim))
-                # fill diagonal
-                for i in range(self.dim):
-                    self.mem_array[i, i] = 0
-
-    def iterate_chunks(self, iterable: Iterable, batch_size: int = 1) -> Iterator:
-
-        buffer = deque()
-        for i in tqdm(iterable, ncols=100, total=scipy.special.comb(self.dim, 2)):
-            if len(buffer) >= batch_size:
-                yield buffer
-                buffer.clear()
-            else:
-                buffer.append(i)
-
-        return buffer
-
-    def distance_chunk(self, indices_pairs: List[Tuple[int, int]]):
-
-        for i, j in indices_pairs:
-            d = self.metrics(self.fp[i], self.fp[j])
-            self.mem_array[i, j] = d
-            self.mem_array[j, i] = d
-
-    def compute(self):
-
-        pool = Parallel(n_jobs=12, backend="loky")
-        exec = delayed(self.distance_chunk)
-
-        pool(exec(ind) for ind in self.iterate_chunks(self.indices))
-
-        return self.mem_array
 
 
 class KmeansRunner:
@@ -500,18 +402,5 @@ if __name__ == "__main__":
 
         generate_sets(WORK_DIR, args["n_from_cluster"] * args["n_clusters"])
 
-        """
-        a2a = All2All(cosine_distance, fp, memmap=True,
-                      mat_file=WORK_DIR / "dist_amt.npy")
-
-        distances = a2a.compute()
-        print(distances)
-        print(distances.nbytes / len(distances)**2)
-        print(convert_size(distances.nbytes))
-        print(np.count_nonzero(distances))
-
-        samples = OPTICS(metric="precomputed").fit_predict(distances)
-        print(samples)
-        """
     else:
         raise ValueError("nothing to do")

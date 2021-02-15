@@ -73,6 +73,8 @@ def input_parser() -> dict:
                    help="input paths to en_vol.npz files from MTD runs, can "
                    "be local(e.g. ../run/en_vol.npz) or remote"
                    "(e.g. host@/.../en_vol.npz")
+    p.add_argument("-a", "--abinit-dir", default=None, type=str, help="path to "
+                   "directory with abiniitio calculations")
 
     return vars(p.parse_args())
 
@@ -123,9 +125,9 @@ def vasp_recompute(atom_style: str = "atomic", lmp_in: str = "in.lammps"):
             vasp_job.write(out.stdout)
 
 
-def collect_data_dirs():
+def collect_data_dirs(base_dir: Path):
 
-    collect_dirs = [d for d in WORK_DIR.glob("*/") if d.is_dir()]
+    collect_dirs = [d for d in base_dir.glob("*/") if d.is_dir()]
 
     # move Cubic diamond to the begining
     index = 0
@@ -230,15 +232,14 @@ def plot_mpl(collect_dirs: List[Path], eos: str, lammpses: Tuple[str, ...],
     plt.show()
 
 
-def plot_plotly(collect_dirs: List[Path], eos: str, lammpses: Tuple[str, ...],
-                labels: Tuple[str, ...]) -> go.Figure:
+def plot_abinit(collect_dirs: List[Path], eos: str) -> go.Figure:
 
     fig = go.Figure()
 
     for wd, c in zip(collect_dirs, COLORS[:len(collect_dirs)]):
 
         vasp_data = np.loadtxt(wd / "vasp" / "vol_stress.txt",
-                            skiprows=1, unpack=True)
+                               skiprows=1, unpack=True)
 
         vasp_state = EquationOfState(vasp_data[0], vasp_data[1], eos=eos)
         x, y = itemgetter(4, 5)(vasp_state.getplotdata())
@@ -254,6 +255,13 @@ def plot_plotly(collect_dirs: List[Path], eos: str, lammpses: Tuple[str, ...],
             marker_size=25, legendgroup=f"vasp_{c}"
         ))
 
+    return fig
+
+
+def plot_predicted(collect_dirs: List[Path], eos: str, lammpses: Tuple[str, ...],
+                   labels: Tuple[str, ...], fig: go.Figure) -> go.Figure:
+
+    for wd, c in zip(collect_dirs, COLORS[:len(collect_dirs)]):
         for l, lab, ls in zip(lammpses, labels, ("dash", "dot", "dashdot", "-")):
             lmps_data = np.loadtxt(wd / l / "vol_stress.txt",
                                 skiprows=1, unpack=True)
@@ -274,10 +282,7 @@ def plot_plotly(collect_dirs: List[Path], eos: str, lammpses: Tuple[str, ...],
             ))
 
     fig.update_layout(title="E-V diagram for DeepMd potential vs "
-                            "Ab Initio calculations",
-                    xaxis_title=f'V [{ANGSTROM}{POW3} / atom]', yaxis_title='E [eV / atom]',
-                    template="minimovka")
-
+                            "Ab Initio calculations")
     return fig
 
 
@@ -323,51 +328,6 @@ def get_mtd_runs(paths: List[str]):
     return data
 
 
-def run(args, graph: Path):
-    RECOMPUTE = args["recompute"]
-    EQ = args["equation"]
-    TRAIN_DIR = args["train_dir"]
-    MTD_RUNS = args["mtds"]
-
-    if graph:
-        mod_lmp_in(graph)
-
-    # calculate nnp
-    if RECOMPUTE:
-        vasp_recompute()
-
-    lammpses = ("lammps", )#, "gc_lammps")
-    labels = ("DPMD", )
-
-    collect_dirs = collect_data_dirs()
-    collect_lmp(collect_dirs, lammpses)
-    collect_vasp(collect_dirs)
-
-    # plot_mpl(collect_dirs)
-    fig = plot_plotly(collect_dirs, EQ, lammpses, labels)
-
-    if MTD_RUNS:
-        mtd_data = get_mtd_runs(MTD_RUNS)
-
-        for name, mdata in mtd_data.items():
-            fig.add_trace(go.Scattergl(
-                x=mdata["volume"], y=mdata["energy"], mode='markers', name=name
-            ))
-
-    if TRAIN_DIR:
-        for t in TRAIN_DIR:
-            coverage_data = get_coverage(Path(t))
-
-            for name, cdata in coverage_data.items():
-                fig.add_trace(go.Scattergl(
-                    x=cdata["volume"], y=cdata["energy"],
-                    mode='markers', name=name
-                ))
-
-
-    fig.write_html(f"E-V({graph.stem}).html", include_plotlyjs="cdn")
-
-
 def get_graphs(input_graphs: List[str]) -> List[Path]:
 
     graphs = []
@@ -401,12 +361,71 @@ def get_graphs(input_graphs: List[str]) -> List[Path]:
     return graphs
 
 
+def run(args, graph: Path):
+    RECOMPUTE = args["recompute"]
+    EQ = args["equation"]
+    TRAIN_DIR = args["train_dir"]
+    MTD_RUNS = args["mtds"]
+    ABINIT_DIR = WORK_DIR if not args["abinit_dir"] else Path(args["abinit_dir"])
+
+    collect_dirs = collect_data_dirs(ABINIT_DIR)
+    fig = plot_abinit(collect_dirs, EQ)
+
+    if graph:
+        mod_lmp_in(graph)
+
+        # calculate nnp
+        if RECOMPUTE:
+            vasp_recompute()
+
+        lammpses = ("lammps", )#, "gc_lammps")
+        labels = ("DPMD", )
+
+        collect_lmp(collect_dirs, lammpses)
+        collect_vasp(collect_dirs)
+
+        fig = plot_predicted(collect_dirs, EQ, lammpses, labels, fig)
+        # plot_mpl(collect_dirs)
+    else:
+        graph = Path.cwd() / "graph"
+        fig.update_layout(title="dataset E-V coverage")
+
+    fig.update_layout(
+        xaxis_title=f'V [{ANGSTROM}{POW3} / atom]',
+        yaxis_title='E [eV / atom]',
+        template="minimovka"
+    )
+
+    if MTD_RUNS:
+        mtd_data = get_mtd_runs(MTD_RUNS)
+
+        for name, mdata in mtd_data.items():
+            fig.add_trace(go.Scattergl(
+                x=mdata["volume"], y=mdata["energy"], mode='markers', name=name
+            ))
+
+    if TRAIN_DIR:
+        for t in TRAIN_DIR:
+            coverage_data = get_coverage(Path(t))
+
+            for name, cdata in coverage_data.items():
+                fig.add_trace(go.Scattergl(
+                    x=cdata["volume"], y=cdata["energy"],
+                    mode='markers', name=name
+                ))
+
+
+    fig.write_html(f"E-V({graph.stem}).html", include_plotlyjs="cdn")
+
+
 if __name__ == "__main__":
     args = input_parser()
 
-    graphs = get_graphs(args["graph"])
-
-    for graph in graphs:
-        print(f"analyzing for graph {graph}")
-        print("--------------------------------------------------------------")
-        run(args, graph)
+    if args["graph"]:
+        graphs = get_graphs(args["graph"])
+        for graph in graphs:
+            print(f"analyzing for graph {graph}")
+            print("----------------------------------------------------------")
+            run(args, graph)
+    else:
+        run(args, None)

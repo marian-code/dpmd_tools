@@ -1,16 +1,28 @@
 """Helper modulre with dpdata subclasses."""
 
+import concurrent.futures as cf
+import math
 from pathlib import Path
-from typing import ItemsView, Iterator, KeysView, List, Union, ValuesView
-from typing_extensions import Literal
+from typing import (TYPE_CHECKING, Callable, ItemsView, Iterator, KeysView,
+                    List, Union, ValuesView)
+
 import numpy as np
-from tqdm import tqdm
 from dpdata import LabeledSystem, MultiSystems
+from tqdm import tqdm
+from typing_extensions import Literal
+
+if TYPE_CHECKING:
+    from ase import Atoms
 
 MAX_FRAMES_PER_SET = 5000
 
 
 class MultiSystemsVar(MultiSystems):
+    """Conveniens subclass of Multisystems.
+
+    Adds `pathlib.Path` compatibility and few other convenience methods.
+    Also introduces better auto set partitioning.
+    """
 
     def to_deepmd_npy(self, folder: Path,
                       set_size: Union[int, list, Literal["auto"]] = 5000,
@@ -24,7 +36,10 @@ class MultiSystemsVar(MultiSystems):
         folder : str
             The output folder
         set_size : int
-            The size of each set.
+            The size of each set, if `auto` than the system will be partitioned
+            to as equally long sets as possible while also trying to maintain
+            data split as close to 90:10 and strictly obeying condition for 
+            MAX_FRAMES_PER_SET
         prec: {numpy.float32, numpy.float64}
             The floating point precision of the compressed data
         """
@@ -71,12 +86,48 @@ class MultiSystemsVar(MultiSystems):
 
             yield multi_sys
 
-    def from_xtalopt(base_dir: Path):
-        ...
-    def from_outcars(files: List[Path]):
-        ...
-    def from_dp_raw():
-        ...
+    def collect_single(self, paths: List[Path],
+                       dir_process: Callable[[Path], List[LabeledSystem]]):
+        """Single core serial data collector"""
+
+        futures = tqdm(paths, ncols=100, total=len(paths))
+
+        for p in futures:
+
+            try:
+                systems = dir_process(p)
+            except Exception as e:
+                futures.write(f"Error in {p.name}: {e}")
+            else:
+                for s in systems:
+                    try:
+                        self.append(s)
+                    except Exception as e:
+                        futures.write(f"Error in {p.name}: {e}")
+
+    def collect_cf(self, paths: List[Path],
+                   dir_process: Callable[[Path], List[LabeledSystem]]):
+        """Parallel async data collector."""
+
+        with cf.ProcessPoolExecutor(max_workers=10) as pool:
+            future2data = {pool.submit(dir_process, p): p for p in paths}
+
+            futures = tqdm(cf.as_completed(future2data),
+                        ncols=100, total=len(paths))
+            for future in futures:
+                path = future2data[future].name
+                futures.set_description(f"extracting: {path}")
+                try:
+                    systems = future.result()
+                except Exception as e:
+                    futures.write(f"Error in {path}: {e}")
+                else:
+                    for s in systems:
+                        try:
+                            s.data["atom_names"] = ["Ge"]
+                            self.append(s)
+                        except Exception as e:
+                            futures.write(f"Error in {path}: {e}")
 
 
 def split_into(n: int, p: int):
@@ -130,3 +181,20 @@ def partition_systems(multi_sys: MultiSystemsVar) -> List[int]:
 
     return n_frames
 
+
+def load_npy_data(path: Path) -> List["Atoms"]:
+
+    system = LabeledSystem()
+
+    system.from_deepmd_comp(str(path.resolve()))
+    return system.to_ase_structure()
+
+
+def convert_size(size_bytes):
+   if size_bytes == 0:
+       return "0B"
+   size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
+   i = int(math.floor(math.log(size_bytes, 1024)))
+   p = math.pow(1024, i)
+   s = round(size_bytes / p, 2)
+   return "%s %s" % (s, size_name[i])

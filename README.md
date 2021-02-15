@@ -22,3 +22,11 @@ Otherwise some scripts will not work.
 ```
 pip install git+https://github.com/ftl-fmfi/dpmd_tools.git -e
 ```
+
+# Example
+
+100 clusters found in ge136 MetaD trajectory by `data_selector.py`. For 300K
+136 atomstructures, fingerprinting takes roughly 2 hours and clustering is a
+matter of minutes.
+
+![Alt Text](data/clusters.png)

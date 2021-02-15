@@ -1,20 +1,19 @@
-"""Read variost data formats to deepmd.
+"""Read various data formats to deepmd.
 
 Can be easily extended by writing new parser functions like e.g.
 `read_vasp_out` and by altering get paths function.
-""" 
+"""
 
 import argparse
 import os
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # or any {'0', '1', '2'}
 os.environ["KMP_WARNINGS"] = "FALSE"
-import concurrent.futures as cf
 import gzip
 import shutil
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Callable, List, Optional, Tuple
+from typing import List, Optional, Tuple, Any
 from warnings import warn
 import plotly.graph_objects as go
 
@@ -43,13 +42,39 @@ def input_parser():
                    help="input list of graphs you wish to use for checking if "
                    "datapoint is covered by current model. If present must "
                    "have at least two distinct graphs")
+    p.add_argument("-e", "--every", default=None, type=int, help="take every "
+                   "n-th frame")
+    p.add_argument("-v", "--volume", default=None, type=str, nargs=2,
+                   help="constrain structures volume. Input as 10.0 31. "
+                   "In [A^3]")
+    p.add_argument("-n", "--energy", default=None, type=str, nargs=2,
+                   help="constrain structures energy. Input as -5 -2. In [eV]")
+    p.add_argument("-a", "--per-atom", default=False, action="store_true",
+                   help="set if energy and volume constraints are computed "
+                   "per atom or for the whole structure")
+    p.add_argument("-gp", "--get-paths", default=None, type=str, help="if not "
+                   "specified default function will be used. Otherwise you "
+                   "can input python code as string that outputs list of "
+                   "'Path' objects to paths variable. The path object is "
+                   "already imported for you. Example: "
+                   "-g 'paths = [Path.cwd() / \"OUTCAR\"]'")
 
     args = vars(p.parse_args())
     if len(set(args["graphs"])) == 1:
         raise ValueError("If you want to filter structures based on current "
-                         "grsaphs you must input at least two")
+                         "graphs you must input at least two")
 
     return args
+
+
+class Loglprint:
+
+    def __init__(self, log_file: Path) -> None:
+        self.log_stream = log_file.open("w")
+
+    def __call__(self, msg: Any) -> Any:
+        self.log_stream.write(f"{str(msg)}\n")
+        print(msg)
 
 
 def extract(archive: Path, to: Path) -> Optional[Path]:
@@ -60,7 +85,7 @@ def extract(archive: Path, to: Path) -> Optional[Path]:
             with extract_to.open("wb") as outfile:
                 shutil.copyfileobj(infile, outfile)
     except Exception as e:
-        print(e)
+        lprint(e)
         return None
     else:
         return extract_to
@@ -97,57 +122,6 @@ def read_dpmd_raw(system_dir: Path) -> List[LabeledSystem]:
     return [LabeledSystem(str(system_dir.resolve()), fmt="deepmd/raw")]
 
 
-def collect_single(paths: List[Path],
-                   dir_process: Callable[[Path], List[LabeledSystem]]):
-
-    multi_sys = MultiSystemsVar()
-
-    futures = tqdm(paths, ncols=100, total=len(paths))
-
-    for p in futures:
-
-        try:
-            systems = dir_process(p)
-        except Exception as e:
-            futures.write(f"Error in {p.name}: {e}")
-        else:
-            for s in systems:
-                try:
-                    multi_sys.append(s)
-                except Exception as e:
-                    futures.write(f"Error in {p.name}: {e}")
-
-    return multi_sys
-
-
-def collect_cf(paths: List[Path],
-               dir_process: Callable[[Path], List[LabeledSystem]]):
-
-    multi_sys = MultiSystemsVar()
-
-    with cf.ProcessPoolExecutor(max_workers=10) as pool:
-        future2data = {pool.submit(dir_process, p): p for p in paths}
-
-        futures = tqdm(cf.as_completed(future2data),
-                       ncols=100, total=len(paths))
-        for future in futures:
-            path = future2data[future].name
-            futures.set_description(f"extracting: {path}")
-            try:
-                systems = future.result()
-            except Exception as e:
-                futures.write(f"Error in {path}: {e}")
-            else:
-                for s in systems:
-                    try:
-                        s.data["atom_names"] = ["Ge"]
-                        multi_sys.append(s)
-                    except Exception as e:
-                        futures.write(f"Error in {path}: {e}")
-
-    return multi_sys
-
-
 def get_paths() -> List[Path]:
 
     # paths = [d for d in WORK_DIR.glob("*/") if d.is_dir()]
@@ -171,10 +145,6 @@ def get_paths() -> List[Path]:
 
     paths = [WORK_DIR]
 
-    print("will read from this paths:")
-    for p in paths:
-        print("-", str(p))
-
     return paths
 
 
@@ -184,7 +154,7 @@ def plot(multi_sys: MultiSystemsVar):
     for system in multi_sys:
         n = system.get_natoms()
         dataframes.append(pd.DataFrame({
-            "energies": system.data["energies"].flatten() / n ,
+            "energies": system.data["energies"].flatten() / n,
             "volumes": np.linalg.det(system.data["cells"]) / n,
             "energies_std": system.data["energies_std"].flatten(),
             "forces_std_max": system.data["forces_std_max"]
@@ -219,20 +189,25 @@ def plot(multi_sys: MultiSystemsVar):
 
 
 class ApplyConstraint:
+    """Apply constraints to dataset and filter out unsatisfactory structures.
+
+    Each method must concatenate to `del_indices` the indices of structures it
+    found that do not satisfy the imposed conditions.
+    """
 
     _predictions = None
     del_indices: np.ndarray = np.empty((0, ), dtype=int)
 
     def __init__(self, name: str, system: LabeledSystem) -> None:
 
-        print(f"filtering system {name}")
+        lprint(f"filtering system {name}")
         self.system: LabeledSystem = system
         self.atoms: List[Atoms] = system.to_ase_structure()
 
     def get_predictions(self, graphs: List[str]) -> List[LabeledSystem]:
 
         if not self._predictions:
-            print("computing model predictions")
+            lprint("computing model predictions")
             self._predictions = []
             job = tqdm(enumerate(graphs, 1), ncols=100, total=len(graphs))
             for i, g in job:
@@ -241,7 +216,7 @@ class ApplyConstraint:
         return self._predictions
 
     def energy(self, *, bracket: Tuple[float, float], per_atom: bool = True):
-        print(f"based on energy{' per atom' if per_atom else ''}")
+        lprint(f"based on energy{' per atom' if per_atom else ''}")
 
         energies = self.system.data["energies"]
         if per_atom:
@@ -249,13 +224,26 @@ class ApplyConstraint:
 
         d = np.argwhere((energies < bracket[0]) | (energies > bracket[1]))
 
-        print(f"got {len(d)} entries to delete as a result of energy "
-              f"constraints")
+        lprint(f"got {len(d)} entries to delete as a result of energy "
+               f"constraints")
 
-        np.concatenate((self.del_indices, d.flatten()))
+        self.del_indices = np.concatenate((self.del_indices, d.flatten()))
+
+    def every(self, *, n_th: int):
+        lprint(f"based on: take every {n_th} frame criterion")
+
+        d = np.delete(
+            np.arange(self.system.get_nframes()),
+            np.arange(0, self.system.get_nframes(), n_th)
+        )
+
+        lprint(f"got {len(d)} entries to delete as a result of take every n-th"
+               f" frame constraints")
+
+        self.del_indices = np.concatenate((self.del_indices, d))
 
     def volume(self, *, bracket: Tuple[float, float], per_atom: bool = True):
-        print(f"based on volume{' per atom' if per_atom else ''}")
+        lprint(f"based on volume{' per atom' if per_atom else ''}")
 
         # this an array of square matrices, linalg det auto cancualtes det for
         # every sub matrix that is square
@@ -265,10 +253,10 @@ class ApplyConstraint:
 
         d = np.argwhere((volumes < bracket[0]) | (volumes > bracket[1]))
 
-        print(f"got {len(d)} entries to delete as a result of volume "
-              f"constraints")
+        lprint(f"got {len(d)} entries to delete as a result of volume "
+               f"constraints")
 
-        np.concatenate((self.del_indices, d.flatten()))
+        self.del_indices = np.concatenate((self.del_indices, d.flatten()))
 
     def dev_e(self, *, graphs: List[str], max_dev_e: float,
               std_method: bool = False):
@@ -278,34 +266,35 @@ class ApplyConstraint:
         any prior selection and want to decide which of them should be added to
         the dataset based on dataset predictions for them.
 
-        References
-        ----------
-        dpgen.simplify.simplify.post_model_devi
+        See Also
+        --------
+        :func:`dpgen.simplify.simplify.post_model_devi`
         """
-        print("based on energy std")
+        lprint("based on energy std")
         predictions = self.get_predictions(graphs)
 
         # shape: (n_models, n_frames)
         energies = np.stack([p.data["energies"] for p in predictions])
         energies /= self.system.get_natoms()
-        
+
         if std_method:
             e_std = energies.std(axis=0)
         else:
             reference = self.system.data["energies"] / self.system.get_natoms()
             # make column vector of reference DFT data
             reference = np.atleast_2d(reference).T
-            e_std = np.sqrt(np.mean(np.power(abs(energies - reference), 2), axis=0))
+            e_std = np.sqrt(np.mean(np.power(abs(energies - reference), 2),
+                            axis=0))
 
         # save for plotting
         self.system.data["energies_std"] = e_std
 
         d = np.argwhere(e_std < max_dev_e)
 
-        print(f"got {len(d)} entries to delete as a result of energy std "
-              f"constraints")
+        lprint(f"got {len(d)} entries to delete as a result of energy std "
+               f"constraints")
 
-        np.concatenate((self.del_indices, d.flatten()))
+        self.del_indices = np.concatenate((self.del_indices, d.flatten()))
 
     def dev_f(self, *, graphs: List[str], max_dev_f: float,
               std_method: bool = False):
@@ -315,22 +304,23 @@ class ApplyConstraint:
         any prior selection and want to decide which of them should be added to
         the dataset based on dataset predictions for them.
 
-        References
-        ----------
-        dpgen.simplify.simplify.post_model_devi
+        See Also
+        --------
+        :func:`dpgen.simplify.simplify.post_model_devi`
         """
-        print(f"based on max atom force std")
+        lprint(f"based on max atom force std")
         predictions = self.get_predictions(graphs)
 
         # shape: (n_models, n_frames, n_atoms, 3)
         forces = np.stack([p.data["forces"] for p in predictions])
-        
+
         # shape: (n_frames, n_atoms, 3)
         if std_method:
             f_std = np.std(axis=0)
         else:
             reference = self.system.data["forces"]
-            f_std = np.sqrt(np.mean(np.power(abs(forces - reference), 2), axis=0))
+            f_std = np.sqrt(np.mean(np.power(abs(forces - reference), 2),
+                            axis=0))
 
         # shape: (n_fames, n_atoms)
         f_std_size = np.linalg.norm(f_std, axis=2)
@@ -343,13 +333,13 @@ class ApplyConstraint:
 
         d = np.argwhere(f_std_max < max_dev_f)
 
-        print(f"got {len(d)} entries to delete as a result of max forces std "
-              f"constraints")
+        lprint(f"got {len(d)} entries to delete as a result of max forces std "
+               f"constraints")
 
-        np.concatenate((self.del_indices, d.flatten()))
+        self.del_indices = np.concatenate((self.del_indices, d.flatten()))
 
     def apply(self) -> LabeledSystem:
-        print(f"deleting {len(self.del_indices)} entries")
+        lprint(f"deleting {len(self.del_indices)} entries")
         for attr in ['cells', 'coords', 'energies', 'forces', 'virials']:
             system.data[attr] = np.delete(system.data[attr], self.del_indices,
                                           axis=0)
@@ -360,63 +350,85 @@ class ApplyConstraint:
 if __name__ == "__main__":
 
     args = input_parser()
+    lprint = Loglprint(DPMD_DATA / "README")
 
-    paths = get_paths()
+    if args["get_paths"]:
+        exec(args["get_paths"])
+        try:
+            paths
+        except NameError:
+            raise RuntimeError("your script did not assign to 'paths' "
+                               "variable")
+    else:
+        paths = get_paths()
+
+    lprint("will read from this paths:")
+    for p in paths:
+        lprint(f"-{p}")
 
     if not args["graphs"]:
         warn("It is strongly advised to use filtering based on currently "
              "trained model", UserWarning)
 
+    multi_sys = MultiSystemsVar()
+
     if args["parser"] == "xtalopt":
-        multi_sys = collect_cf(paths, read_xtalopt_dir)
+        multi_sys.collect_cf(paths, read_xtalopt_dir)
     elif args["parser"] == "vasp_dirs":
-        multi_sys = collect_cf(paths, read_vasp_dir)
+        multi_sys.collect_cf(paths, read_vasp_dir)
     elif args["parser"] == "vasp_files":
-        multi_sys = collect_cf(paths, read_vasp_out)
+        multi_sys.collect_cf(paths, read_vasp_out)
     elif args["parser"] == "dpmd_raw":
-        multi_sys = collect_cf(paths, read_dpmd_raw)
+        multi_sys.collect_cf(paths, read_dpmd_raw)
     else:
         raise NotImplementedError(f"parser for {args['parser']} "
                                   f"is not implemented")
 
-    print("got these systems ------------------------------------------------")
+    lprint("got these systems -----------------------------------------------")
     for name, system in multi_sys.items():
-        print(f"{name:6} -> {len(system):4} structures")
+        lprint(f"{name:6} -> {len(system):4} structures")
 
-    print("filtering data ---------------------------------------------------")
-    
+    lprint("filtering data --------------------------------------------------")
+
     multi_sys.predict(args["graphs"])
 
-    print(f"size before {sum([len(s) for s in multi_sys.values()])}")
+    lprint(f"size before {sum([len(s) for s in multi_sys.values()])}")
     for k, system in multi_sys.items():
         # for k, system in [("Ge8", multi_sys.systems["Ge8"])]:
         constraints = ApplyConstraint(k, system)
-        constraints.energy(bracket=(-5, -2), per_atom=True)
-        constraints.volume(bracket=(10, 31), per_atom=True)
+        if args["energy"]:
+            bracket = [float(e) for e in args["energy"]]
+            constraints.energy(bracket=bracket, per_atom=args["per_atom"])
+        if args["volume"]:
+            bracket = [float(v) for v in args["volume"]]
+            constraints.volume(bracket=bracket, per_atom=args["per_atom"])
         if args["graphs"]:
             constraints.dev_e(graphs=args["graphs"], max_dev_e=1e-2)
             constraints.dev_f(graphs=args["graphs"], max_dev_f=1e-2)
+        if args["every"]:
+            constraints.every(n_th=int(args["every"]))
         system = constraints.apply()
-        print("**************************************************************")
+        lprint("*************************************************************")
 
-    print(f"size after {sum([len(s) for s in multi_sys.values()])}")
+    lprint(f"size after {sum([len(s) for s in multi_sys.values()])}")
 
-    print("plotting std for energies and max atom forces")
-    plot(multi_sys)
+    if args["graphs"]:
+        lprint("plotting std for energies and max atom forces")
+        plot(multi_sys)
 
-    print(f"deleting systems with less than {MIN_STRUCTURES} structures -----")
+    lprint(f"deleting systems with less than {MIN_STRUCTURES} structures ----")
     del_systems = []
     for name, system in multi_sys.items():
         if len(system) < MIN_STRUCTURES:
             del_systems.append(name)
 
     for s in del_systems:
-        print(f"deleting {s}")
+        lprint(f"deleting {s}")
         multi_sys.systems.pop(s, None)
 
-    print("shuffling systems ------------------------------------------------")
+    lprint("shuffling systems -----------------------------------------------")
     multi_sys.shuffle()
 
-    print("saving data ------------------------------------------------------")
+    lprint("saving data -----------------------------------------------------")
     multi_sys.to_deepmd_raw(DPMD_DATA)
     multi_sys.to_deepmd_npy(DPMD_DATA, set_size="auto")
