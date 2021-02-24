@@ -24,7 +24,7 @@ from joblib import Parallel, delayed
 from sklearn.cluster import MiniBatchKMeans
 from tqdm import tqdm
 
-from .data import load_npy_data
+from dpmd_tools.readers import load_npy_data, load_raw_data
 
 WORK_DIR = Path.cwd()
 
@@ -48,12 +48,12 @@ def input_parser():
                         action="store_true", help="whether to run "
                         "fingerprinting in parallel, usually there is speedup "
                         "benefit up to an order of magnitude")
-    
+
     select = sp.add_parser("select")
     select.add_argument("-p", "--passes", default=100, type=int,
                         help="number ov dataset passes of MiniBatch K-means "
                         "online learning loop.")
-    
+
     select.add_argument("-bs", "--batch_size", default=int(1e6), type=int,
                         help="Data will be iterativelly loaded from files "
                         "specified in the fingerprinting phase, and from "
@@ -75,7 +75,13 @@ class FingerprintDataset:
                  comparator_settings: dict, batch_size: Optional[int] = None,
                  parallel: bool = False) -> None:
 
-        atoms = load_npy_data(path)
+        sets = [f for f in path.glob("*") if (f / "box.npy").is_file()]
+        if len(sets) == 0:
+            print("loading from raw")
+            atoms = load_raw_data(path)
+        else:
+            print("loading from npy")
+            atoms = load_npy_data(path)
 
         if batch_size and batch_size < len(atoms):
             self.atom_chunks = list(self._split(atoms, batch_size))
@@ -99,7 +105,7 @@ class FingerprintDataset:
                 data = self._run_parallel(job)
             else:
                 data = self._run_serial(job)
-            
+
             fingerprints = np.vstack(data)
 
             self._dump_data(fingerprints, i)
@@ -113,7 +119,7 @@ class FingerprintDataset:
         return data
 
     def _run_parallel(self, job: Iterator[Atoms]) -> List[np.ndarray]:
-    
+
         pool = Parallel(n_jobs=12, backend="loky")
         exec = delayed(self._take_fingerprints)
         return pool(exec(a, self.comparator) for a in job)
@@ -269,9 +275,9 @@ def get_en_vol(path: Path) -> Tuple[np.ndarray, np.ndarray]:
 
 def plot_clusters(energies: np.ndarray, volumes: np.ndarray,
                   labels: np.ndarray):
-                  
+
     colors = list(mcd.CSS4_COLORS.values())
-    
+
     fig = go.Figure()
     for i in range(100):
         idx = np.argwhere(labels == i).flatten()
@@ -302,7 +308,7 @@ def split_dataset(path: Path, labels: np.ndarray, n_from_cluster: int,
     label_count = dict(zip(unique, counts))
 
     for q in ("box", "energy", "force", "coord", "virial"):
-        
+
         selected = []
         remaining = []
         for cluster_label, n in label_count.items():
@@ -337,7 +343,7 @@ def generate_sets(path: Path, n_structures: int):
     system.to_deepmd_npy(str(path.resolve()), set_size=int(n_structures / 10))
 
 
-if __name__ == "__main__":
+def main():
 
     args = input_parser()
     print(args)
@@ -392,7 +398,9 @@ if __name__ == "__main__":
         energies, volumes = get_en_vol(WORK_DIR)
 
         plot_clusters(energies, volumes, kmeans.labels)
+        np.savetxt("clusters.raw", kmeans.labels, fmt="%3d")
 
+        """
         split_dataset(
             WORK_DIR,
             kmeans.labels,
@@ -401,6 +409,9 @@ if __name__ == "__main__":
         )
 
         generate_sets(WORK_DIR, args["n_from_cluster"] * args["n_clusters"])
-
+        """
     else:
         raise ValueError("nothing to do")
+
+if __name__ == "__main__":
+    main()

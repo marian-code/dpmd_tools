@@ -128,6 +128,7 @@ def vasp_recompute(atom_style: str = "atomic", lmp_in: str = "in.lammps"):
 def collect_data_dirs(base_dir: Path):
 
     collect_dirs = [d for d in base_dir.glob("*/") if d.is_dir()]
+    collect_dirs = [d for d in collect_dirs if not (d / ".noEV").is_file()]
 
     # move Cubic diamond to the begining
     index = 0

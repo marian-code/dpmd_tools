@@ -45,5 +45,10 @@ setup(
     packages=find_packages(exclude=("tests",)),
     include_package_data=True,
     install_requires=REQUIREMENTS,
-    extras_require={"test": ["unittest"] + REQUIREMENTS}
+    extras_require={"test": ["unittest"] + REQUIREMENTS},
+    entry_points={"console_scripts": [
+        "to_deepmd = dpmd_tools.to_deepmd:main",
+        "cluster_deepmd = dpmd_tools.data_cluster:main",
+
+    ]},
 )
