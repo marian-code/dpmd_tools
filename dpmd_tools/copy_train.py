@@ -117,7 +117,7 @@ def prepare(*, input: Path, output: Path, control: str):
         if "PBS" in text or "SBATCH" in text:
             text = re.sub(r"train_\d+", f"train_{train_num}", text)
             text = re.sub(
-                r"((?:-o|--output)\s*\S*)\d+.pb", r"\g<1>{}.pb".format(train_num),
+                r"((?:-o|--output)\s*\S*?)\d+.pb", r"\g<1>{}.pb".format(train_num),
                 text
             )
 

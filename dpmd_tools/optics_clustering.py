@@ -13,13 +13,14 @@ from joblib import Parallel, delayed
 from sklearn.cluster import OPTICS
 from tqdm import tqdm
 
-from .data import convert_size
+from dpmd_tools.utils import convert_size
 
 WORK_DIR = Path.cwd()
 
 
 def cosine_distance(fp1: np.ndarray, fp2: np.ndarray):
     """Returns the cosine distance from two fingerprints.
+
     It also needs information about the number of atoms from
     each element, which is included in "typedic".
 
@@ -45,8 +46,8 @@ def cosine_distance(fp1: np.ndarray, fp2: np.ndarray):
 
 
 class All2All:
-    """COmpute all to all distance matrix for OPTICS clustering.
-    
+    """Compute all to all distance matrix for OPTICS clustering.
+
     Or any other clustering algorithm.
     memmap is for large datasets that will not fit to memory, keep in mind
     that all-to-all matrix will have (n_structures)^2 * size

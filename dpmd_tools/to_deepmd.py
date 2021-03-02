@@ -11,18 +11,19 @@ import sys
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # or any {'0', '1', '2'}
 os.environ["KMP_WARNINGS"] = "FALSE"
 from pathlib import Path
-from typing import Any, List
+from typing import List, Tuple
 from warnings import warn
 
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-from datetime import datetime
 
-from dpmd_tools.data import MultiSystemsVar
+from dpmd_tools.data import (LabeledSystemMask, LabeledSystemSelected,
+                             MultiSystemsVar)
 from dpmd_tools.frame_filter import ApplyConstraint
 from dpmd_tools.readers import (read_dpmd_raw, read_vasp_dir, read_vasp_out,
                                 read_xtalopt_dir)
+from dpmd_tools.utils import get_graphs, Loglprint
 
 WORK_DIR = Path.cwd()
 PARSER_CHOICES = ("xtalopt", "vasp_dirs", "vasp_files", "dpmd_raw")
@@ -35,14 +36,16 @@ def input_parser():
         "selected structures) dirs",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
-    required_dev = "-g " in sys.argv or "--graphs" in sys.argv
 
     p.add_argument("-p", "--parser", default=None, required=True, type=str,
                    choices=PARSER_CHOICES, help="input parser you wish to use")
     p.add_argument("-g", "--graphs", default=[], type=str, nargs="*",
                    help="input list of graphs you wish to use for checking if "
                    "datapoint is covered by current model. If present must "
-                   "have at least two distinct graphs")
+                   "have at least two distinct graphs. You can use glob patterns "
+                   "relative to current path e.g. '../ge_all_s1[3-6].pb'. Files can "
+                   "also be located on remote e.g. "
+                   "'kohn@'/path/to/file/ge_all_s1[3-6].pb'")
     p.add_argument("-e", "--every", default=None, type=int, help="take every "
                    "n-th frame")
     p.add_argument("-v", "--volume", default=None, type=float, nargs=2,
@@ -58,12 +61,10 @@ def input_parser():
                    "python code as string that outputs list of 'Path' objects. The "
                    "Path object is already imported for you. Example: "
                    "-g '[Path.cwd() / \"OUTCAR\"]'")
-    p.add_argument("-de", "--dev-energy", default=False, required=required_dev,
-                   type=float, nargs=2, help="specify energy deviations lower "
-                   "and upper bound for selection")
-    p.add_argument("-df", "--dev-force", default=False, required=required_dev,
-                   type=float, nargs=2, help="specify force deviations lower "
-                   "and upper bound for selection")
+    p.add_argument("-de", "--dev-energy", default=False, type=float, nargs=2,
+                   help="specify energy deviations lower and upper bound for selection")
+    p.add_argument("-df", "--dev-force", default=False, type=float, nargs=2,
+                   help="specify force deviations lower and upper bound for selection")
     p.add_argument("-m", "--mode", default="new", choices=("new", "append"),
                    type=str, help="choose data export mode in append "
                    "structures will be appended to ones already chosen for "
@@ -81,8 +82,19 @@ def input_parser():
                    "munber of frames a system must have. Smaller systems are deleted. "
                    "This is due to difficulties in partitioning and inefficiency of "
                    "DeepMD when working with such small data")
+    p.add_argument("-nf", "--n-from-cluster", default=100, type=int, help="number of "
+                   "random samples to select from each cluster")
+    p.add_argument("-cp", "--cache-predictions", default=False, action="store_true",
+                   help="if true than prediction for current graphs are stored in "
+                   "running directory so they do not have to be recomputed when "
+                   "you wish to run the scrip again")
+    p.add_argument("--auto", default=False, action="store_true", help="automatically "
+                   "accept when prompted to save changes")
 
     args = vars(p.parse_args())
+
+    args["graphs"] = get_graphs(args["graphs"])
+
     if len(set(args["graphs"])) == 1:
         raise ValueError("If you want to filter structures based on current "
                          "graphs you must input at least two")
@@ -90,33 +102,8 @@ def input_parser():
     return args
 
 
-class Loglprint:
-
-    def __init__(self, log_file: Path) -> None:
-        log_file.parent.mkdir(exist_ok=True, parents=True)
-
-        if log_file.exists():
-            self.log_stream = log_file.open("a")
-            fmt = "%d/%m/%Y %H:%M:%S"
-            self.__call__("\n=========================================================")
-            self.__call__(f"Appending logs: {datetime.now().strftime(fmt)}")
-            self.__call__("=========================================================\n")
-        else:
-            self.log_stream = log_file.open("w")
-
-
-
-
-    def __call__(self, msg: Any) -> Any:
-        self.log_stream.write(f"{str(msg)}\n")
-        print(msg)
-
-
 def get_paths() -> List[Path]:
 
-    # paths = [d for d in WORK_DIR.glob("*/") if d.is_dir()]
-
-    
     paths = []
     for root, dirs, files in os.walk(WORK_DIR, topdown=True):
 
@@ -124,64 +111,99 @@ def get_paths() -> List[Path]:
             if "OUTCAR" in f:
                 paths.append(Path(root) / f)
 
-
         delete = []
         for i, d in enumerate(dirs):
             if "analysis" in d or "traj" in d or "results" in d or "test" in d:
                 delete.append(i)
 
-            #if "50" not in d:
-            #    delete.append(i)
-
         for i in sorted(set(delete), reverse=True):
             del dirs[i]
-    
-    # paths = [WORK_DIR]
 
     return paths
 
 
-def plot(multi_sys: MultiSystemsVar):
+def make_df(multi_sys: MultiSystemsVar) -> Tuple[pd.DataFrame, bool, bool]:
+
+    has_e_std = all(["energies_std" in s.data for s in multi_sys])
+    has_f_std = all(["forces_std_max" in s.data for s in multi_sys])
 
     dataframes = []
     for system in multi_sys:
         n = system.get_natoms()
-        dataframes.append(pd.DataFrame({
+        df = pd.DataFrame({
             "energies": system.data["energies"].flatten() / n,
             "volumes": np.linalg.det(system.data["cells"]) / n,
-            "energies_std": system.data["energies_std"].flatten(),
-            "forces_std_max": system.data["forces_std_max"]
-        }))
+        })
+
+        if has_e_std:
+            df["energies_std"] = system.data["energies_std"].flatten()
+        if has_f_std:
+            df["forces_std_max"] = system.data["forces_std_max"]
+        dataframes.append(df)
 
     data = pd.concat(dataframes)
 
+    return data, has_e_std, has_f_std
+
+
+def plot(multi_sys: MultiSystemsVar, chosen_sys: MultiSystemsVar, *, histogram: bool):
+
+    data, has_e_std, has_f_std = make_df(multi_sys)
+    if histogram:
+        data_chosen, has_e_std, has_f_std = make_df(chosen_sys)
+
     for what in ("energies_std", "forces_std_max"):
-        fig = go.Figure(data=go.Scattergl(
-            x=data["energies"],
-            y=data["volumes"],
-            mode='markers',
-            marker=dict(
-                size=8,
-                color=data[what],
-                colorbar=dict(
-                    title=what
-                ),
-                colorscale='thermal',
-                showscale=True
+        if what == "energies_std" and not has_e_std:
+            print("skipping plot energies std, this was not selection criterion")
+            continue
+        elif what == "forces_std_max" and not has_f_std:
+            print("skipping plot forces std max, this was not selection criterion")
+            continue
+        if histogram:
+            fig = go.Figure()
+            fig.add_trace(go.Histogram(
+                x=data[what],
+                histnorm='probability',
+                name="all data in dataset"
+            ))
+            fig.add_trace(go.Histogram(
+                x=data_chosen[what],
+                histnorm='probability',
+                name="data chosen from dataset"
+            ))
+            fig.update_layout(
+                title=f'Histogram of {what} for all structures, 0 are for those selected in previous iterations',
+                xaxis_title=what
             )
-        ))
-        fig.update_layout(
-            title='E-V plot',
-            xaxis_title="V [A^3]",
-            yaxis_title="E [eV]",
-            coloraxis_colorbar=dict(
-                title=what,
+        else:
+            fig = go.Figure(data=go.Scattergl(
+                x=data["energies"],
+                y=data["volumes"],
+                mode='markers',
+                marker=dict(
+                    size=8,
+                    color=data[what],
+                    colorbar=dict(
+                        title=what
+                    ),
+                    colorscale='thermal',
+                    showscale=True
+                )
+            ))
+            fig.update_layout(
+                title=f'E-V plot, zero {what} are for structures selected in previous iterations',
+                xaxis_title="V [A^3]",
+                yaxis_title="E [eV]",
+                coloraxis_colorbar=dict(
+                    title=what,
+                )
             )
+        fig.write_html(
+            f"{what}{'_hist' if histogram else ''}.html", include_plotlyjs="cdn"
         )
-        fig.write_html(f"{what}.html", include_plotlyjs="cdn")
 
 
-def main():
+def main():  # NOSONAR
 
     args = input_parser()
 
@@ -228,7 +250,7 @@ def main():
         warn("It is strongly advised to use filtering based on currently "
              "trained model", UserWarning)
 
-    multi_sys = MultiSystemsVar()
+    multi_sys = MultiSystemsVar[LabeledSystemMask]()
 
     if args["parser"] == "xtalopt":
         multi_sys.collect_cf(paths, read_xtalopt_dir)
@@ -242,6 +264,10 @@ def main():
         raise NotImplementedError(f"parser for {args['parser']} "
                                   f"is not implemented")
 
+    if multi_sys.get_nframes() == 0:
+        lprint("aborting, no data was found")
+        sys.exit()
+
     lprint("got these systems -----------------------------------------------")
     for name, system in multi_sys.items():
         lprint(f"{name:6} -> {len(system):4} structures")
@@ -252,12 +278,19 @@ def main():
 
     # here we will store the filtered structures that we want to use for
     # training
-    chosen_sys = MultiSystemsVar()
+    chosen_sys = MultiSystemsVar[LabeledSystemSelected]()
 
     lprint(f"size before {sum([len(s) for s in multi_sys.values()])}")
+    lprint("*************************************************************")
     for k, system in multi_sys.items():
         constraints = ApplyConstraint(
-            k, system, args["max_select"], args["fingerprint_use"], lprint
+            k,
+            system,
+            args["max_select"],
+            args["fingerprint_use"],
+            lprint,
+            append=args["mode"] == "append",
+            cache_predictions=args["cache_predictions"]
         )
         if args["energy"]:
             constraints.energy(
@@ -267,26 +300,29 @@ def main():
             constraints.volume(
                 bracket=args["volume"], per_atom=args["per_atom"]
             )
-        if args["graphs"]:
+        if args["graphs"] and args["dev_energy"]:
             constraints.dev_e(
                 graphs=args["graphs"],
                 bracket=args["dev_energy"],
                 per_atom=args["per_atom"]
             )
+        if args["graphs"] and args["dev_force"]:
             constraints.dev_f(graphs=args["graphs"], bracket=args["dev_force"])
         if args["every"]:
             constraints.every(n_th=args["every"])
 
-        if args["mode"] == "append":
-            lprint("will add structures from prevoius selections")
         chosen_sys.append(constraints.apply())
         lprint("*************************************************************")
 
-    lprint(f"size after {sum([len(s) for s in chosen_sys.values()])}")
+    lprint(
+        f"size after {sum([len(s) for s in chosen_sys.values()])}, this includes "
+        f"previous iterations selections"
+    )
 
     if args["graphs"]:
         lprint("plotting std for energies and max atom forces")
-        plot(chosen_sys)
+        plot(multi_sys, chosen_sys, histogram=False)
+        plot(multi_sys, chosen_sys, histogram=True)
 
     lprint(f"deleting systems with less than {args['min_frames']} structures ----")
     del_systems = []
@@ -298,10 +334,16 @@ def main():
         lprint(f"deleting {s}")
         chosen_sys.systems.pop(s, None)
 
+    # if result is satisfactory continue, else abort
+    if not args["auto"]:
+        if input("Continue and write data to disk? [ENTER]") != "":  # NOSONAR
+            lprint("selection run abborted, changes to dataset were not written")
+            sys.exit()
+
     lprint("shuffling systems -----------------------------------------------")
     chosen_sys.shuffle()
 
-    # create dirs
+    # create dirs
     DPMD_DATA_ALL.mkdir(exist_ok=True, parents=True)
     DPMD_DATA_TRAIN.mkdir(exist_ok=True, parents=True)
 
@@ -313,6 +355,8 @@ def main():
     multi_sys.to_deepmd_raw(DPMD_DATA_ALL)
 
     lprint(f"data output to {DPMD_DATA}")
+    lprint.write()
+
 
 if __name__ == "__main__":
     main()

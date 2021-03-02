@@ -24,7 +24,7 @@ import subprocess
 import sys
 from operator import itemgetter
 from pathlib import Path
-from typing import List, Tuple
+from typing import Dict, Iterator, List, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -35,6 +35,7 @@ from ase.io import read
 from ase.io.lammpsdata import write_lammps_data
 from ssh_utilities import Connection
 from tqdm import tqdm
+from dpmd_tools.utils import get_graphs
 
 sys.path.append("/home/rynik/OneDrive/dizertacka/code/rw")
 sys.path.append("/home/rynik/OneDrive/dizertacka/code/nnp")
@@ -117,11 +118,11 @@ def vasp_recompute(atom_style: str = "atomic", lmp_in: str = "in.lammps"):
 
         out = subprocess.run([lmp_binary, "-in", lmp_in], cwd=l,
                              capture_output=True, encoding="utf-8")
-        
+
         try:
             out.check_returncode()
         except subprocess.CalledProcessError as e:
-            vasp_job.write(e)
+            vasp_job.write(str(e))
             vasp_job.write(out.stdout)
 
 
@@ -289,12 +290,12 @@ def plot_predicted(collect_dirs: List[Path], eos: str, lammpses: Tuple[str, ...]
 
 def get_coverage(data_dir: Path, box: str = "box.raw", En: str = "energy.raw"):
 
-    dirs = [d for d in data_dir.glob("*/")
+    dirs = [d for d in data_dir.rglob("*/")
             if (d / box).is_file() and (d / En).is_file()]
 
-    iter_dirs = tqdm(dirs, ncols=100, total=len(list(dirs)))
+    iter_dirs: Iterator[Path] = tqdm(dirs, ncols=100, total=len(list(dirs)))
 
-    data = {}
+    data: Dict[str, Dict[str, np.ndarray]] = {}
     for d in iter_dirs:
         iter_dirs.set_description(f"get coverage: {d.name}")
         n_atoms = len((d / "type.raw").read_text().splitlines())
@@ -302,8 +303,17 @@ def get_coverage(data_dir: Path, box: str = "box.raw", En: str = "energy.raw"):
         cells = np.loadtxt(d / "box.raw").reshape((-1, 3, 3))
         volumes = np.array([np.abs(np.linalg.det(c)) for c in cells]) / n_atoms
 
-        name = d.name.replace("data_", "")
-        data[name] = {"energy": energies, "volume": volumes}
+        if len(d.relative_to(data_dir).parts) == 1:
+            # data/md_cd/...raw 
+            name = d.name.replace("data_", "")
+        else:
+            # data/md_cd/Ge136/...raw
+            name = d.parent.name.replace("data_", "")
+        if name in data:
+            data[name]["energy"] = np.concatenate((data[name]["energy"], energies))
+            data[name]["volume"] = np.concatenate((data[name]["volume"], volumes))
+        else:
+            data[name] = {"energy": energies, "volume": volumes}
 
     return dict(sorted(data.items()))
 
@@ -327,39 +337,6 @@ def get_mtd_runs(paths: List[str]):
             data[name] = np.load(p)
 
     return data
-
-
-def get_graphs(input_graphs: List[str]) -> List[Path]:
-
-    graphs = []
-    for graph_str in input_graphs:
-        host_path = graph_str.split("@")
-
-        if len(host_path) == 1:
-            host = "local"
-            path_str = host_path[0]
-            local = True
-        else:
-            host, path_str = host_path
-            local = False
-        print(f"Getting graph from {host}")
-
-        with Connection(host, quiet=True, local=local) as c:
-
-            remote_path = c.pathlib.Path(path_str)
-            remote_root = c.pathlib.Path(remote_path.root)
-            remote_pattern = str(remote_path.relative_to(remote_path.root))
-            remote_graphs = list(remote_root.glob(remote_pattern))
-
-            for rg in remote_graphs:
-                local_graph = Path.cwd() / rg.name
-                try:
-                    c.shutil.copy2(rg, local_graph, direction="get")
-                except shutil.SameFileError:
-                    pass
-                graphs.append(local_graph)
-
-    return graphs
 
 
 def run(args, graph: Path):

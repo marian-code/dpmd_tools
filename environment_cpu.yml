@@ -1,4 +1,4 @@
-name: dpmd_gpu
+name: dpmd_cpu
 channels:
 - deepmodeling
 dependencies:
@@ -13,4 +13,4 @@ dependencies:
   - dpdata
   - ase
   - tqdm
-  - ssh-utilities>=0.7.2
+  - ssh-utilities>=0.8.3

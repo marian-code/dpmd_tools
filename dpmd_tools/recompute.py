@@ -31,6 +31,7 @@ from tqdm import tqdm
 
 if TYPE_CHECKING:
     from ssh_utilities import SSHPath
+
     try:
         from typing import TypedDict  # python > 3.8
     except ImportError:
@@ -44,9 +45,9 @@ if TYPE_CHECKING:
             "job_id": str,
             "running_dir": SSHPath,
             "job_name": str,
-            "SCAN": bool
+            "SCAN": bool,
         },
-        total=False
+        total=False,
     )
 
     CDATA = TypedDict(
@@ -58,9 +59,10 @@ if TYPE_CHECKING:
             "submit": str,
             "max": int,
             "jobs": List[JOB],
-            "remote_dir": SSHPath
+            "remote_dir": SSHPath,
         },
-        total=False)
+        total=False,
+    )
 
     DISP = Callable[[str, int, str, bool, bool, int], str]
 
@@ -74,20 +76,31 @@ log = logging.getLogger(__name__)
 def input_parser():
     p = argparse.ArgumentParser(
         description="script to recompute arbitrarry atoms set",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
-    p.add_argument("-s", "--start", help="start of the interval",
-                   type=int, default=0)
-    p.add_argument("-e", "--end", help="end of the interval (None = end)",
-                   type=int, default=None)
-    p.add_argument("-r", "--remote", help="server to run on", nargs="+",
-                   required=True, choices=("aurel", "kohn", "schrodinger",
-                   "fock", "hartree", "landau"))
-    p.add_argument("-S", "--SCAN", help="whether to use SCAN functional",
-                   type=bool, default=False)
-    p.add_argument("-f", "--failed-recompute", help="re-run failed jobs",
-                   action="store_true", default=False)
+    p.add_argument("-s", "--start", help="start of the interval", type=int, default=0)
+    p.add_argument(
+        "-e", "--end", help="end of the interval (None = end)", type=int, default=None
+    )
+    p.add_argument(
+        "-r",
+        "--remote",
+        help="server to run on",
+        nargs="+",
+        required=True,
+        choices=("aurel", "kohn", "schrodinger", "fock", "hartree", "landau"),
+    )
+    p.add_argument(
+        "-S", "--SCAN", help="whether to use SCAN functional", type=bool, default=False
+    )
+    p.add_argument(
+        "-f",
+        "--failed-recompute",
+        help="re-run failed jobs",
+        action="store_true",
+        default=False,
+    )
 
     return vars(p.parse_args())
 
@@ -101,6 +114,7 @@ class Dispatcher:
             log.debug(f"registered dispatcher function for {fmt}")
             cls._funcs[fmt] = func
             return func
+
         return decorator
 
     @classmethod
@@ -109,8 +123,14 @@ class Dispatcher:
 
 
 @Dispatcher.register("aurel")
-def batch_script_ibm(server: str, n_atoms: int, ident: str, scan: bool,
-                     priority: bool = True, hour_length: int = 12):
+def batch_script_ibm(
+    server: str,
+    n_atoms: int,
+    ident: str,
+    scan: bool,
+    priority: bool = True,
+    hour_length: int = 12,
+):
 
     s = ""
     if hour_length <= 12:
@@ -146,10 +166,9 @@ def batch_script_ibm(server: str, n_atoms: int, ident: str, scan: bool,
     s += "# @ queue"
 
     if scan:
-        s+= "mpiexec /gpfs/home/dominika/vasp.5.3.2.complex.27.10.14"
+        s += "mpiexec /gpfs/home/dominika/vasp.5.3.2.complex.27.10.14"
     else:
-        s += ("mpiexec /gpfs/home/kohulak/Software/vasp.5.4.4-testing/"
-                "bin/vasp_std")
+        s += "mpiexec /gpfs/home/kohulak/Software/vasp.5.4.4-testing/" "bin/vasp_std"
 
     s += "touch done"
     return s
@@ -160,18 +179,23 @@ def batch_script_ibm(server: str, n_atoms: int, ident: str, scan: bool,
 @Dispatcher.register("hartree")
 @Dispatcher.register("landau")
 @Dispatcher.register("schrodinger")
-def batch_script_pbs(server: str, n_atoms: int, ident: str, scan: bool,
-                     priority: bool = True, hour_length: int = 12):
+def batch_script_pbs(
+    server: str,
+    n_atoms: int,
+    ident: str,
+    scan: bool,
+    priority: bool = True,
+    hour_length: int = 12,
+):
     s = ""
-    
+
     if server == "kohn":
         ppn = 16
     else:
         ppn = 12
 
     s += "!/bin/bash\n"
-    s += (f"#PBS -l nodes={server}:ppn={ppn},walltime="
-            f"{hour_length}:00:00\n")
+    s += f"#PBS -l nodes={server}:ppn={ppn},walltime=" f"{hour_length}:00:00\n"
     s += f"#PBS -q batch\n"
     s += f"#PBS -u rynik\n"
     s += f"#PBS -N {ident}\n"
@@ -182,15 +206,16 @@ def batch_script_pbs(server: str, n_atoms: int, ident: str, scan: bool,
     s += 'if [ "$NAME" = "fock" ]\n'
     s += "then\n"
     s += '    VASP="/home/s/Software/vasp.5.4.4_mpi_TS/bin/vasp_std"\n'
-    s += 'else\n'
-    s += ('    VASP="/home/s/Software/VASP/intel-mpi-TS-HI/'
-            'vasp-5.4.4-TS-HI/bin/vasp_std"\n')
+    s += "else\n"
+    s += (
+        '    VASP="/home/s/Software/VASP/intel-mpi-TS-HI/'
+        'vasp-5.4.4-TS-HI/bin/vasp_std"\n'
+    )
     s += "fi\n\n"
     s += "cd $PBS_O_WORKDIR\n"
     s += "source /opt/intel/bin/compilervars.sh intel64\n"
     s += 'export PATH="$PATH:/opt/intel/bin"\n'
-    s += ('export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/opt/intel/mkl/'
-            'lib/intel64_lin"\n')
+    s += 'export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/opt/intel/mkl/' 'lib/intel64_lin"\n'
     s += f"/home/s/bin/mpirun -np {ppn} $VASP"
 
     s += "touch done"
@@ -248,12 +273,20 @@ class Recompute:
     job_data: Deque["JOB"]
     c: Dict[str, "CDATA"]
 
-    def __init__(self, hosts: List[str], start: int, stop: int,
-                 recompute_failed: bool, scan: bool, remote_settings: dict,
-                 work_dir: Path, data_dir: Path, dump_file: Path,
-                 incar_template: Optional[Path] = None,
-                 KP_spacing: Optional[float] = None,  #NOSONAR
-                 ) -> None:
+    def __init__(
+        self,
+        hosts: List[str],
+        start: int,
+        stop: int,
+        recompute_failed: bool,
+        scan: bool,
+        remote_settings: dict,
+        work_dir: Path,
+        data_dir: Path,
+        dump_file: Path,
+        incar_template: Optional[Path] = None,
+        KP_spacing: Optional[float] = None,  # NOSONAR
+    ) -> None:
 
         # set constants
         self.WD = work_dir
@@ -281,21 +314,29 @@ class Recompute:
         for h in hosts:
             log.info(f"--> {h}")
             if h == "aurel":
-                JOB_STATUS = ["/usr/bin/llq", "-f", r"%id", r"%o", r"%jn",
-                              r"%dq", r"%st", r"%p", r"%c"]
+                JOB_STATUS = [
+                    "/usr/bin/llq",
+                    "-f",
+                    r"%id",
+                    r"%o",
+                    r"%jn",
+                    r"%dq",
+                    r"%st",
+                    r"%p",
+                    r"%c",
+                ]
                 JOB_SUBMIT = "/usr/bin/llsubmit"
             else:
                 JOB_STATUS = ["/opt/pbs/bin/qstat"]
                 JOB_SUBMIT = "/opt/pbs/bin/qsub"
 
             self.c[h] = {
-                "conn": Connection.get(h, quiet=True, local=False,
-                                       thread_safe=False),
+                "conn": Connection.get(h, quiet=True, local=False, thread_safe=False),
                 "name": h,
                 "status": JOB_STATUS,
                 "submit": JOB_SUBMIT,
                 "max": remote_settings[h]["max_jobs"],
-                "jobs": []
+                "jobs": [],
             }
             # make SSHPath instance
             rm_dir = remote_settings[h]["remote_dir"]
@@ -317,10 +358,17 @@ class Recompute:
             host["conn"].close(quiet=True)
 
     @classmethod
-    def from_json(cls, hosts: list, start: int, stop: int,
-                  recompute_failed: bool, scan: bool, data_dir: Path,
-                  dump_file: Path, KP_spacing: Optional[float] = None
-                  ) -> "Recompute":
+    def from_json(
+        cls,
+        hosts: list,
+        start: int,
+        stop: int,
+        recompute_failed: bool,
+        scan: bool,
+        data_dir: Path,
+        dump_file: Path,
+        KP_spacing: Optional[float] = None,
+    ) -> "Recompute":
         """All parameters have the same meaning as in __init__ method.
 
         All jobs that were running are left as is and finished with previously
@@ -351,26 +399,34 @@ class Recompute:
                 job["running_dir"] = conn["conn"].pathlib.Path(job["running_dir"])
 
         cls.continue_data = data
-        return cls(hosts, start, stop, recompute_failed, scan, remote_settings,
-                   work_dir, data_dir, dump_file,
-                   KP_spacing=KP_spacing)
+        return cls(
+            hosts,
+            start,
+            stop,
+            recompute_failed,
+            scan,
+            remote_settings,
+            work_dir,
+            data_dir,
+            dump_file,
+            KP_spacing=KP_spacing,
+        )
 
     def get_finished_jobs(self) -> Tuple[List[int], List[int]]:
         """Override to define custom behaviour."""
         log.info("Checking done jobs")
 
         # get only dirs with calculations
-        done_dirs = [int(d.name) for d in self.WD.glob("*/")
-                     if d.name.isdigit()]
+        done_dirs = [int(d.name) for d in self.WD.glob("*/") if d.name.isdigit()]
 
         # get failed dirs
-        failed_dirs = [int(d.name) for d in (self.WD / "failed").glob(("*/"))
-                       if d.name.isdigit()]
+        failed_dirs = [
+            int(d.name) for d in (self.WD / "failed").glob(("*/")) if d.name.isdigit()
+        ]
 
         return done_dirs, failed_dirs
 
     def _dump2disk(self):
-
         @singledispatch
         def json_serializable(obj):
             raise TypeError(f"{type(obj)} serialization is not supported.")
@@ -390,8 +446,7 @@ class Recompute:
         self.c["remote_settings"] = self.remote_settings
 
         with self.DUMP_FILE.open("w") as f:
-            json.dump(self.c, f, indent=4, sort_keys=True,
-                      default=json_serializable)
+            json.dump(self.c, f, indent=4, sort_keys=True, default=json_serializable)
 
         self.c.pop("remote_settings")
 
@@ -428,21 +483,19 @@ class Recompute:
                 iter_atoms.write(f"{i} is currently running, skipping...")
                 continue
 
-            data.append({
-                "index": i,
-                "atoms": a,
-                "atoms_size": len(a)
-            })
+            data.append({"index": i, "atoms": a, "atoms_size": len(a)})
 
         log.info(f"Found {len(data) + len(running)} jobs to compute.")
-        log.info(f"{len(running)} jobs are already scheduled to run or "
-                 f"running.")
+        log.info(f"{len(running)} jobs are already scheduled to run or " f"running.")
         if self.RECOMPUTE_FAILED:
-            log.info(f"Out of that, {failed} jobs are failed and are set to "
-                     f"be recomputed\n")
+            log.info(
+                f"Out of that, {failed} jobs are failed and are set to "
+                f"be recomputed\n"
+            )
         else:
-            log.info(f"Also found {failed} failed jobs which will not be "
-                     f"recomputed\n")
+            log.info(
+                f"Also found {failed} failed jobs which will not be " f"recomputed\n"
+            )
 
         # compute total atoms count and save to estimate remainig time
         self.total_atoms = sum([d["atoms_size"] for d in data])
@@ -462,15 +515,14 @@ class Recompute:
         # pop largest indices first otherwise they will get messed up
         for d in sorted(done, reverse=True):
 
-            job = data["jobs"].pop(d)
+            job = data["jobs"].pop(d, None)
             remote_dir = job["running_dir"]
             calc_dir = self.WD / remote_dir.name
 
             log.info(f"Retrieving finished job {job['index']} from {server}")
 
             data["conn"].shutil.download_tree(
-                remote_dir, calc_dir, exclude="*WAVECAR",
-                quiet=True, remove_after=True
+                remote_dir, calc_dir, exclude="*WAVECAR", quiet=True, remove_after=True
             )
 
             try:
@@ -481,14 +533,13 @@ class Recompute:
 
             except (IndexError, FileNotFoundError):
                 log.warning(f"Computation {job['index']} failed !!!")
-                rmtree(self.WD / "failed" / calc_dir.name,
-                       ignore_errors=True)
-                move(fspath(calc_dir),
-                     fspath(self.WD / "failed" / calc_dir.name))
+                rmtree(self.WD / "failed" / calc_dir.name, ignore_errors=True)
+                move(fspath(calc_dir), fspath(self.WD / "failed" / calc_dir.name))
                 calc_time = 0.0
             else:
-                log.info(f"Current computation CPU time: "
-                         f"{timedelta(seconds=calc_time)}")
+                log.info(
+                    f"Current computation CPU time: " f"{timedelta(seconds=calc_time)}"
+                )
             finally:
                 self.total_calc_time += calc_time
                 self.calc_times_norm.append(calc_time / job["atoms_size"])
@@ -503,29 +554,26 @@ class Recompute:
         left_atoms = sum([j["atoms_size"] for j in self.job_data])
         cpu_eta = cpu_avg * left_atoms
 
-        log.info(f"Average CPU time/atom: "
-                 f"{timedelta(seconds=cpu_avg)}")
-        log.info(f"Estimated CPU time left: "
-                 f"{timedelta(seconds=cpu_eta)}")
-        log.info(f"Total CPU time from start: "
-                 f"{timedelta(seconds=self.total_calc_time)}")
-        
+        log.info(f"Average CPU time/atom: " f"{timedelta(seconds=cpu_avg)}")
+        log.info(f"Estimated CPU time left: " f"{timedelta(seconds=cpu_eta)}")
+        log.info(
+            f"Total CPU time from start: " f"{timedelta(seconds=self.total_calc_time)}"
+        )
+
         total_time = time() - self.start_time
         if self.total_atoms - left_atoms == 0:
             time_avg = 0.0
         else:
             time_avg = total_time / (self.total_atoms - left_atoms)
         time_eta = left_atoms * time_avg
-        
-        log.info(f"Average time/atom: "
-                 f"{timedelta(seconds=time_avg)}")
-        log.info(f"Estimated time left: "
-                 f"{timedelta(seconds=time_eta)}")
-        log.info(f"Total time from start: "
-                 f"{timedelta(seconds=total_time)}")
-        
-        log.info("------------------------------"
-                 "----------------------------------\n")
+
+        log.info(f"Average time/atom: " f"{timedelta(seconds=time_avg)}")
+        log.info(f"Estimated time left: " f"{timedelta(seconds=time_eta)}")
+        log.info(f"Total time from start: " f"{timedelta(seconds=total_time)}")
+
+        log.info(
+            "------------------------------" "----------------------------------\n"
+        )
 
     def _wait(self):
 
@@ -543,8 +591,11 @@ class Recompute:
 
                 try:
                     out = data["conn"].subprocess.run(
-                        data["status"], suppress_out=False,
-                        capture_output=True, check=True, encoding="utf-8"
+                        data["status"],
+                        suppress_out=False,
+                        capture_output=True,
+                        check=True,
+                        encoding="utf-8",
                     )
                 except CalledProcessError:
                     print("CalledProcessError capturing qstat out", end="\r")
@@ -568,14 +619,16 @@ class Recompute:
 
                 # check if all job names are still in queue
                 elif all(j["job_name"] in out.stdout for j in jobs):
-                    print(f"Waiting for jobs completition: "
-                          f"{str(timedelta(seconds=wait_time))}", end="\r")
+                    print(
+                        f"Waiting for jobs completition: "
+                        f"{str(timedelta(seconds=wait_time))}",
+                        end="\r",
+                    )
 
                 # some unspecified error occured,
                 # probably wrong capture of stdout
                 else:
-                    print("Unspecified error in reading output",
-                          " " * 100, end="\r")
+                    print("Unspecified error in reading output", " " * 100, end="\r")
                     # TODO stdout and stderr are empty and returncode is 1 or 0
                     # log.info(out)
 
@@ -589,18 +642,13 @@ class Recompute:
 
     def get_incar(self, server: str, atoms: Atoms, calc_dir: Path):
 
-        args = {
-            "nsim": 4,
-            "npar": 4,
-            "kpar": 2 if len(atoms) > 10 else 1
-        }
+        args = {"nsim": 4, "npar": 4, "kpar": 2 if len(atoms) > 10 else 1}
 
         self.INCAR_TEMPLATE.set(**args)
         self.INCAR_TEMPLATE.set(kpts=self.KP_spacing)
         self.INCAR_TEMPLATE.write_incar(atoms, calc_dir)
 
-    def prepare_calc(self, index: int, server: str, atoms: Atoms
-                     ) -> Tuple[Path, str]:
+    def prepare_calc(self, index: int, server: str, atoms: Atoms) -> Tuple[Path, str]:
 
         log.info("Preparing job on local side...")
 
@@ -616,8 +664,10 @@ class Recompute:
 
         # copy kpoints file
         if self.KP_spacing:
-            log.info(f"setting KPOINTS so the target density is close to "
-                     f"{self.KP_spacing}")
+            log.info(
+                f"setting KPOINTS so the target density is close to "
+                f"{self.KP_spacing}"
+            )
             (calc_dir / "KPOINTS").write_text(self.generate_kpoints(atoms))
         else:
             log.info("copying KPOINS from inputs directory")
@@ -634,35 +684,35 @@ class Recompute:
         if self.SCAN:
             log.info("Running SCAN calcualtion")
             copy(self.DATA_DIR / "INCAR2", calc_dir)
-            pbs = (self.DATA_DIR / f"pbs_SCAN_{server}.job")
+            pbs = self.DATA_DIR / f"pbs_SCAN_{server}.job"
         else:
             log.info("Running PBE calcualtion")
-            pbs = (self.DATA_DIR / f"pbs_PBE_{server}.job")
+            pbs = self.DATA_DIR / f"pbs_PBE_{server}.job"
 
         # write identification number and
         # copy PBS submit script to calc dir
         if self.INCAR_TEMPLATE:
             job_script = Dispatcher.get(server)(
-                server,
-                len(atoms),
-                job_name,
-                self.SCAN,
-                priority=True,
-                hour_length=12
+                server, len(atoms), job_name, self.SCAN, priority=True, hour_length=12
             )
             # self.get_batch_script(server, atoms, job_name)
         else:
             job_script = pbs.read_text().replace("GAP_IDENT", job_name)
             if not "touch done" in job_script:
                 job_script += "touch done"
-        
+
         (calc_dir / "pbs.job").write_text(job_script)
 
         # write structure to file
         # pop is used because we do not need to keep the structure
-        write(str(calc_dir / "POSCAR"), atoms, direct=True, vasp5=True,
-              ignore_constraints=True,
-              label='File generated by python recompute script')
+        write(
+            str(calc_dir / "POSCAR"),
+            atoms,
+            direct=True,
+            vasp5=True,
+            ignore_constraints=True,
+            label="File generated by python recompute script",
+        )
 
         return calc_dir, job_name
 
@@ -681,7 +731,7 @@ class Recompute:
         vol = 1 / atoms.get_volume()
         # get num. of kpoints
         kpoints = vol / self.KP_spacing
-        diff_points = (POINTS - kpoints)
+        diff_points = POINTS - kpoints
 
         # get closest
         k = np.where(diff_points > 0, diff_points, np.inf).argmin()
@@ -697,18 +747,21 @@ class Recompute:
 
         to_delete = []
         for k, v in self.c.items():
-            if len(v['jobs']) == 0 and v["max"] == 0:
+            if len(v["jobs"]) == 0 and v["max"] == 0:
                 to_delete.append(k)
             elif v["max"] == 0:
-                log.info(f"{k:<11}: {len(v['jobs']):>2} job finishing, "
-                         f"no further jobs will be submited")
+                log.info(
+                    f"{k:<11}: {len(v['jobs']):>2} job finishing, "
+                    f"no further jobs will be submited"
+                )
                 log.info(f"-> ids     : {v['jobs'][0]['index']}")
             else:
-                jobs = sorted(set([j['index'] for j in v['jobs']]))
+                jobs = sorted(set([j["index"] for j in v["jobs"]]))
                 # show contracted list of intervals, not each job
                 job_intervals = []
-                for _, group in itertools.groupby(enumerate(jobs),
-                                                  lambda t: t[1] - t[0]):
+                for _, group in itertools.groupby(
+                    enumerate(jobs), lambda t: t[1] - t[0]
+                ):
                     group = list(group)
                     if group[0][1] == group[-1][1]:
                         job_intervals.append(str(group[0][1]))
@@ -716,8 +769,7 @@ class Recompute:
                         job_intervals.append(f"{group[0][1]}-{group[-1][1]}")
 
                 log.info(f"{k:<11}: {len(v['jobs']):>2}/{v['max']:<2} running")
-                log.info(f"-> ids     : "
-                         f"{', '.join(job_intervals)}")
+                log.info(f"-> ids     : " f"{', '.join(job_intervals)}")
 
         # delete host which will not receive further jobs
         for td in to_delete:
@@ -754,13 +806,16 @@ class Recompute:
             else:
                 data = self.job_data.popleft()
 
-            log.info(f"---------- Optimizing {data['index']}: "
-                     f"{total_jobs - len(self.job_data)}/{total_jobs} "
-                     f"-------------")
+            log.info(
+                f"---------- Optimizing {data['index']}: "
+                f"{total_jobs - len(self.job_data)}/{total_jobs} "
+                f"-------------"
+            )
 
             # prepare calculation in loacal dir
-            prepare_dir, job_name = self.prepare_calc(data['index'], server,
-                                                      data.pop("atoms"))
+            prepare_dir, job_name = self.prepare_calc(
+                data["index"], server, data.pop("atoms")
+            )
 
             submit_dir = c["remote_dir"] / f"{prepare_dir.name}"
 
@@ -771,8 +826,12 @@ class Recompute:
             # TODO we assume it never fails??
             # run qsub command
             out = c["conn"].subprocess.run(
-                [c["submit"], "pbs.job"], suppress_out=True, quiet=True,
-                cwd=submit_dir, capture_output=True, encoding="utf-8"
+                [c["submit"], "pbs.job"],
+                suppress_out=True,
+                quiet=True,
+                cwd=submit_dir,
+                capture_output=True,
+                encoding="utf-8",
             )
 
             # record job id if it needs to be killed
@@ -833,7 +892,8 @@ if __name__ == "__main__":
 
     logging.basicConfig(
         level=logging.INFO,
-        format="[%(asctime)s] %(levelname)-7s %(name)-8s %(message)s")
+        format="[%(asctime)s] %(levelname)-7s %(name)-8s %(message)s",
+    )
     logging.getLogger("paramiko").setLevel(logging.WARNING)
     args = input_parser()
 
@@ -850,8 +910,9 @@ if __name__ == "__main__":
     CVD = 4.7942826905483325e-05  # target kpoint density
 
     if DUMP_FILE.is_file():
-        inpt = input("Dump file present, "
-                     "do you want to restart calculation? [y/n]: ")
+        inpt = input(
+            "Dump file present, " "do you want to restart calculation? [y/n]: "
+        )
         if inpt == "y":
             restart = True
         elif inpt == "n":
@@ -862,30 +923,42 @@ if __name__ == "__main__":
         restart = False
 
     if restart:
-        r = Recompute.from_json(args['remote'], args["start"], args["end"],
-                                recompute_failed=args["failed_recompute"],
-                                scan=args["SCAN"], data_dir=DATA_DIR,
-                                dump_file=DUMP_FILE, KP_spacing=CVD)
+        r = Recompute.from_json(
+            args["remote"],
+            args["start"],
+            args["end"],
+            recompute_failed=args["failed_recompute"],
+            scan=args["SCAN"],
+            data_dir=DATA_DIR,
+            dump_file=DUMP_FILE,
+            KP_spacing=CVD,
+        )
     else:
         SETTINGS = {
             "aurel": {
                 "max_jobs": 500,
-                "remote_dir": "/gpfs/fastscratch/rynik/recompute/"
+                "remote_dir": "/gpfs/fastscratch/rynik/recompute/",
             },
             "kohn": {
                 "max_jobs": 1,
-                "remote_dir": ("/home/rynik/Raid/dizertacka/train_Si/"
-                               "recompute/")
-            }
+                "remote_dir": ("/home/rynik/Raid/dizertacka/train_Si/" "recompute/"),
+            },
         }
         for h in ("hartree", "fock", "landau", "schrodinger"):
             SETTINGS[h] = SETTINGS["kohn"]
 
-        r = Recompute(args['remote'], args["start"], args["end"],
-                      recompute_failed=args["failed_recompute"],
-                      scan=args["SCAN"], remote_settings=SETTINGS,
-                      work_dir=WORK_DIR, data_dir=DATA_DIR,
-                      dump_file=DUMP_FILE, KP_spacing=CVD)
+        r = Recompute(
+            args["remote"],
+            args["start"],
+            args["end"],
+            recompute_failed=args["failed_recompute"],
+            scan=args["SCAN"],
+            remote_settings=SETTINGS,
+            work_dir=WORK_DIR,
+            data_dir=DATA_DIR,
+            dump_file=DUMP_FILE,
+            KP_spacing=CVD,
+        )
 
     atoms = prepare_data()
     log.info(f"got {len(atoms)} structures")

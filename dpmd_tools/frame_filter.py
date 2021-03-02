@@ -1,13 +1,14 @@
+from dpmd_tools.compare_graph import WORK_DIR
 from typing import Any, Callable, List, NoReturn, Tuple
 
 import numpy as np
-from tqdm import tqdm
 
-from dpmd_tools.data import LabeledSystemMask
+from dpmd_tools.data import LabeledSystemMask, LabeledSystem
 from functools import wraps
 
 
 def check_bracket(function: Callable) -> Callable:
+    """Check if bracketing interval was inputin correct order."""
     @wraps(function)
     def decorator(self: "ApplyConstraint", **kwargs) -> Callable:
 
@@ -36,13 +37,17 @@ class ApplyConstraint:
         max_structures: int,
         use_prints: bool,
         lprint: Callable[[Any], NoReturn],
+        append: bool = True,
+        cache_predictions: bool = False,
     ) -> None:
 
         self.lprint = lprint
         self.system = system
         self.max_structures = max_structures
+        self.cache_predictions = cache_predictions
         self.use_prints = use_prints
         self.sel_indices = np.arange(self.system.get_nframes(), dtype=int)
+        self.append = append
 
         self.lprint(f"filtering system {name}")
 
@@ -51,10 +56,37 @@ class ApplyConstraint:
         if not self._predictions:
             self.lprint("computing model predictions")
             self._predictions = []
-            job = tqdm(enumerate(graphs, 1), ncols=100, total=len(graphs))
-            for i, g in job:
-                job.set_description(f"graph {i}/{len(graphs)}")
-                self._predictions.append(self.system.predict(g))
+            for i, g in enumerate(graphs, 1):
+                self.lprint(f"graph {i}/{len(graphs)}")
+
+                # load/save cached predictions to avoid recomputing when we need to run
+                # again. This happens quite often since we need to guess bracket
+                # intervals and there is not knowing beforehand how many structures this
+                # will yield
+                cache_dir = WORK_DIR / f"cache_{g.name}"
+                if self.cache_predictions:
+                    if cache_dir.is_dir():
+                        self.lprint(
+                            f"found cached predictions: "
+                            f"{cache_dir.relative_to(WORK_DIR)}"
+                        )
+                        system = LabeledSystem(cache_dir, fmt="deepmd/npy")
+                    else:
+                        self.lprint(
+                            f"could not find cached predictions: "
+                            f"{cache_dir.relative_to(WORK_DIR)}"
+                        )
+                        system = self.system.predict(g)
+                else:
+                    system = self.system.predict(g)
+
+                self._predictions.append(system)
+
+                if not cache_dir.is_dir():
+                    self.lprint(
+                        f"saving predictions to {cache_dir.relative_to(WORK_DIR)}"
+                    )
+                    system.to_deepmd_npy(cache_dir)
         return self._predictions
 
     def _record_select(self, sel_indices: np.ndarray):
@@ -64,54 +96,56 @@ class ApplyConstraint:
         return np.argwhere(cond & (self.system.mask == 0)).flatten()
 
     def _limit_structures(self):
-        self.lprint(f"applying max structures ({self.max_structures}) limit")
 
-        # if upper limit on number of selected structures is specified
-        if self.max_structures is not None:
-            over_limit = len(self.sel_indices) - self.max_structures
+        over_limit = len(self.sel_indices) - self.max_structures
 
-            # if the number of selected structures is not over limit, return
-            if over_limit <= 0:
-                return
+        # if the number of selected structures is not over limit, return
+        if over_limit <= 0:
+            return
 
+        self.lprint(
+            f"will delete {over_limit} additional structures, because "
+            "max structures argument is specified"
+        )
+
+        if self.use_prints and self.system.data["clusters"] is not None:
             self.lprint(
-                f"will delete {over_limit} additional structures, because "
-                "max structures argument is specified"
+                "will use fingerprint based clustering to select the most diverse "
+                "structures"
+            )
+            count = np.unique(self.system.clusters, return_counts=True)[1]
+            # get probability we will encounter cluster 'i'
+            prob = count / self.system.get_nframes()
+            # reverse probability, so the least frequent structures
+            # are most probable
+            prob = 1 - prob
+            # map probability to whole array
+            probability = np.empty(self.sel_indices.shape)
+            # get cluster numbers only for the selected indices
+            pre_select_clusters = self.system.clusters[self.sel_indices]
+            for i, _ in enumerate(count):
+                probability[pre_select_clusters == i] = prob[i]
+
+            print(probability.shape)
+            print(self.sel_indices.shape)
+
+            # norm probability to 1
+            probability = probability / probability.sum()
+            # select
+            self.sel_indices = np.random.choice(
+                self.sel_indices, self.max_structures, p=probability, replace=False
             )
 
-            if self.use_prints and self.system.data["clusters"] is not None:
-                self.lprint(
-                    "will use fingerprint based clustering to select the most diverse "
-                    "structures"
-                )
-                count = np.unique(self.system.clusters)[1]
-                # get probability we will encounter cluster 'i'
-                prob = count / self.system.get_nframes()
-                # reverse probability, so the least frequent structures
-                # are most probable
-                prob = 1 - prob
-                # map probability to whole array
-                probability = np.empty(self.system.get_nframes())
-                for i, _ in enumerate(count):
-                    probability[self.system.clusters == i] = prob[i]
+        else:
+            if not self.system.data["clusters"] is None:
+                self.lprint("cannot use fingerprints, clusters.raw file is missing")
 
-                # norm probability to 1
-                probability = probability / probability.sum()
-                # select
-                self.sel_indices = np.random.choice(
-                    self.sel_indices, self.max_structures, p=probability, replace=False
-                )
-
-            else:
-                if not self.system.data["clusters"] is None:
-                    self.lprint("cannot use fingerprints, clusters.raw file is missing")
-
-                # randomly select indices, the number that is selected is such that
-                # taht after deleting these number of selected indices will fit into
-                # the max_structures limit
-                self.sel_indices = np.random.choice(
-                    self.sel_indices, self.max_structures, replace=False
-                )
+            # randomly select indices, the number that is selected is such that
+            # taht after deleting these number of selected indices will fit into
+            # the max_structures limit
+            self.sel_indices = np.random.choice(
+                self.sel_indices, self.max_structures, replace=False
+            )
 
     @check_bracket
     def energy(self, *, bracket: Tuple[float, float], per_atom: bool = True):
@@ -132,7 +166,7 @@ class ApplyConstraint:
 
         indices = np.arange(self.system.get_nframes())
 
-        #  because we have masked system some structures might not be available
+        # because we have masked system some structures might not be available
         # so we try to shift the choose indices by one in each loop and choose
         # the result that gives most structures
         s = []
@@ -146,6 +180,22 @@ class ApplyConstraint:
         )
 
         self._record_select(s)
+
+    def n_from_cluster(self, *, n=int):
+        self.lprint(f"based on: select {n} random frames from each cluster criterion")
+
+        if not self.system.has_clusters():
+            raise RuntimeError(
+                "cannot use this criterion, cluster labels are not computed"
+            )
+        else:
+            selected = []
+            for label in np.unique(self.system.clusters):
+                idx = np.argwhere(self.system.clusters == label).flatten()
+                np.random.shuffle(idx)
+                selected.append(idx[:n])  # this way it does not fail if n > len(idx)
+
+            self._record_select(np.concatenate(selected))
 
     @check_bracket
     def volume(self, *, bracket: Tuple[float, float], per_atom: bool = True):
@@ -187,17 +237,21 @@ class ApplyConstraint:
         predictions = self.get_predictions(graphs)
 
         # shape: (n_models, n_frames)
-        energies = np.stack([p.data["energies"] for p in predictions])
+        energies = np.column_stack([p.data["energies"] for p in predictions])
         if per_atom:
             energies /= self.system.get_natoms()
 
         if std_method:
-            e_std = energies.std(axis=0)
+            e_std = np.std(energies, axis=1)
         else:
             reference = self.system.data["energies"] / self.system.get_natoms()
             # make column vector of reference DFT data
             reference = np.atleast_2d(reference).T
-            e_std = np.sqrt(np.mean(np.power(abs(energies - reference), 2), axis=0))
+
+            e_std = np.sqrt(np.mean(np.power(abs(energies - reference), 2), axis=1))
+
+        # set elements that where already selectedin in previous iteration to 0
+        e_std[self.system.get_subsystem_indices()] = 0
 
         # save for plotting
         self.system.data["energies_std"] = e_std
@@ -233,18 +287,23 @@ class ApplyConstraint:
         # shape: (n_models, n_frames, n_atoms, 3)
         forces = np.stack([p.data["forces"] for p in predictions])
 
+        print(forces.shape)
+
         # shape: (n_frames, n_atoms, 3)
         if std_method:
-            f_std = np.std(axis=0)
+            f_std = np.std(forces, axis=0)
         else:
             reference = self.system.data["forces"]
             f_std = np.sqrt(np.mean(np.power(abs(forces - reference), 2), axis=0))
 
-        # shape: (n_fames, n_atoms)
+        # shape: (n_frames, n_atoms)
         f_std_size = np.linalg.norm(f_std, axis=2)
 
         # shape: (n_frames, )
         f_std_max = np.max(f_std_size, axis=1)
+
+        # set elements that where already selectedin in previous iteration to 0
+        f_std_max[self.system.get_subsystem_indices()] = 0
 
         # save for plotting
         self.system.data["forces_std_max"] = f_std_max
@@ -258,21 +317,35 @@ class ApplyConstraint:
         self._record_select(s)
 
     def apply(self) -> LabeledSystemMask:
-        self.lprint(f"selecting {len(self.sel_indices)} frames")
 
-        self._limit_structures()
+        if self.append:
+            diff_frames = len(self.system.get_subsystem_indices()) - len(
+                self.sel_indices
+            )
+            self.lprint(
+                f"selecting {len(self.sel_indices)} frames in current iteration"
+            )
+            if diff_frames > 0:
+                self.lprint(
+                    f"other {diff_frames} frames will be added as a result of "
+                    f"selection from prevous iterations"
+                )
 
-        # create used structures mask
-        mask = np.zeros(self.system.get_nframes(), dtype=int)
-        mask[self.sel_indices] = 1
+        # apply max structures limit if
+        # upper limit on number of selected structures is specified
+        if self.max_structures is not None:
+            self.lprint(f"applying max structures ({self.max_structures}) limit")
+            self._limit_structures()
+
         # append to existing mask
-        self.system.append_mask(mask)
+        self.system.append_mask(self.sel_indices)
 
-        # create filtered subsystem
-        sub_indices = self.system.get_subsystem_indices()
-        sub_system = self.system.sub_system(sub_indices)
+        # create subsystem filtered by mask
+        sub_system = self.system.get_subsystem(None)
 
         # copy custom attributes
+        sub_indices = self.system.get_subsystem_indices()
+
         for attr in ["energies_std", "forces_std_max"]:
             try:
                 sub_system.data[attr] = self.system.data[attr][sub_indices]

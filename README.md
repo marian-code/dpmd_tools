@@ -8,7 +8,10 @@ Contains tools:
 * batch recompute script that does computations on specified remote hosts
 * trajectory optimizer to find spacegroup of strcuctures along trajectory
 * Oganov fingerprint clustering and selection for datasets
-* constrain based filtering of dataset structures
+* constrain based filtering of dataset structures - supports iterative dataset
+  growing
+* upload_script that copies dataset files from local to remote server and neatly
+  organizes the
 
 Needs to be installed in appropriate conda environment that has DeePMD-Kit
 installed! Use the environment files or install deepmd-kit from conda into
@@ -25,7 +28,7 @@ pip install git+https://github.com/ftl-fmfi/dpmd_tools.git -e
 
 # Example
 
-100 clusters found in ge136 MetaD trajectory by `data_selector.py`. For 300K
+100 clusters found in ge136 MetaD trajectory by `data_cluster.py`. For 300K
 136 atomstructures, fingerprinting takes roughly 2 hours and clustering is a
 matter of minutes.
 

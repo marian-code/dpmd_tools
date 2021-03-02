@@ -8,7 +8,6 @@ Only works for single element compounds.
 
 import argparse
 import json
-import shutil
 from collections import deque
 from pathlib import Path
 from typing import Any, Iterator, List, Optional, Sequence, Tuple
@@ -19,10 +18,10 @@ import numpy as np
 import plotly.graph_objects as go
 from ase import Atoms
 from ase.ga.ofp_comparator import OFPComparator
-from dpdata import LabeledSystem
 from joblib import Parallel, delayed
 from sklearn.cluster import MiniBatchKMeans
 from tqdm import tqdm
+from dpmd_tools.readers import 
 
 from dpmd_tools.readers import load_npy_data, load_raw_data
 
@@ -53,7 +52,6 @@ def input_parser():
     select.add_argument("-p", "--passes", default=100, type=int,
                         help="number ov dataset passes of MiniBatch K-means "
                         "online learning loop.")
-
     select.add_argument("-bs", "--batch_size", default=int(1e6), type=int,
                         help="Data will be iterativelly loaded from files "
                         "specified in the fingerprinting phase, and from "
@@ -65,6 +63,26 @@ def input_parser():
                         "selected and the rest")
     select.add_argument("-nc", "--n-clusters", default=100, type=int,
                         help="target number of clusters for K-Means algorithm")
+
+    both = sp.add_parser("both")
+    both.add_argument("-p", "--passes", default=100, type=int,
+                        help="number ov dataset passes of MiniBatch K-means "
+                        "online learning loop.")
+    both.add_argument("-bs", "--batch_size", default=int(1e6), type=int,
+                        help="Data will be iterativelly loaded from files "
+                        "specified in the fingerprinting phase, and from "
+                        "those random batches will be chosen of size "
+                        "specified by this argument")
+    both.add_argument("-nf", "--n-from-cluster", default=100, type=int,
+                        help="number of random samples to select from each "
+                        "cluster. Data will be devided to two folders: "
+                        "selected and the rest")
+    both.add_argument("-nc", "--n-clusters", default=100, type=int,
+                        help="target number of clusters for K-Means algorithm")
+    both.add_argument("-pa", "--parallel", default=False,
+                      action="store_true", help="whether to run "
+                      "fingerprinting in parallel, usually there is speedup "
+                      "benefit up to an order of magnitude")
 
     return vars(p.parse_args())
 
@@ -202,7 +220,7 @@ class KmeansRunner:
             for i in job:
 
                 idx = np.random.randint(data.shape[0], size=self.batch_size)
-                feed_data = data[idx,:]
+                feed_data = data[idx, :]
                 # normalize to make cosine similarity equal to
                 # euclidean l2 distance measure
                 # https://stats.stackexchange.com/questions/72978/vector-space-model-cosine-similarity-vs-euclidean-distance
@@ -293,56 +311,6 @@ def plot_clusters(energies: np.ndarray, volumes: np.ndarray,
     fig.write_html("clusters.html", include_plotlyjs="cdn")
 
 
-def split_dataset(path: Path, labels: np.ndarray, n_from_cluster: int,
-                  n_clusters: int):
-
-    print(f"selecting {n_from_cluster} random samples from each cluster")
-    print(f"this will result in {n_from_cluster * n_clusters} structures")
-
-    selected_path = path / "selected"
-    selected_path.mkdir(exist_ok=True)
-    remaining_path = path / "remaining"
-    remaining_path.mkdir(exist_ok=True)
-
-    unique, counts = np.unique(labels, return_counts=True)
-    label_count = dict(zip(unique, counts))
-
-    for q in ("box", "energy", "force", "coord", "virial"):
-
-        selected = []
-        remaining = []
-        for cluster_label, n in label_count.items():
-
-            idx = np.argwhere(labels == cluster_label).flatten()
-            if n > n_from_cluster:
-                np.random.shuffle(idx)
-                selected.append(idx[:n_from_cluster])
-                remaining.append(idx[n_from_cluster:])
-            else:
-                selected.append(idx)
-
-        data = np.loadtxt(path / f"{q}.raw")
-
-        selected = data[np.concatenate(selected)]
-        remaining = data[np.concatenate(remaining)]
-
-        print(f"saving split data for {q}")
-        np.savetxt(selected_path / f"{q}.raw", selected)
-        np.savetxt(remaining_path /  f"{q}.raw", remaining)
-
-    for q in ("type", "type_map"):
-        shutil.copy2(f"{q}.raw", selected_path)
-        shutil.copy2(f"{q}.raw", remaining_path)
-
-
-def generate_sets(path: Path, n_structures: int):
-    print("Converting raw files to deepmd npy format")
-
-    system = LabeledSystem()
-    system.from_deepmd_raw(str(path.resolve()))
-    system.to_deepmd_npy(str(path.resolve()), set_size=int(n_structures / 10))
-
-
 def main():
 
     args = input_parser()
@@ -362,7 +330,7 @@ def main():
 
     comparator = OFPComparator(**comparator_settings)
 
-    if args["action"] == "take-prints":
+    if args["action"] in ("take-prints", "both"):
 
         print(f"fingeprinting: {WORK_DIR.name}")
         fingerprints = FingerprintDataset(
@@ -374,7 +342,7 @@ def main():
         )
         fingerprints.run()
 
-    elif args["action"] == "select":
+    if args["action"] in ("select", "both"):
 
         # find and sort files in dir
         fp_files = [f for f in WORK_DIR.glob("fingerprints_*.npy")]
@@ -398,20 +366,8 @@ def main():
         energies, volumes = get_en_vol(WORK_DIR)
 
         plot_clusters(energies, volumes, kmeans.labels)
-        np.savetxt("clusters.raw", kmeans.labels, fmt="%3d")
+        np.savetxt(WORK_DIR / "clusters.raw", kmeans.labels, fmt="%3d")
 
-        """
-        split_dataset(
-            WORK_DIR,
-            kmeans.labels,
-            int(args["n_from_cluster"]),
-            int(args["n_clusters"])
-        )
-
-        generate_sets(WORK_DIR, args["n_from_cluster"] * args["n_clusters"])
-        """
-    else:
-        raise ValueError("nothing to do")
 
 if __name__ == "__main__":
     main()
