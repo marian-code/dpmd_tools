@@ -1,9 +1,13 @@
-from pathlib import Path
-from shutil import SameFileError
-from typing import Deque, List, Any
-from datetime import datetime
-from collections import deque
+import atexit
 import math
+from collections import deque
+from datetime import datetime
+from pathlib import Path
+from shutil import SameFileError, which
+from socket import gethostname
+from typing import Any, Deque, List
+from subprocess import CalledProcessError, run
+from getpass import getuser
 
 from ssh_utilities import Connection
 
@@ -63,7 +67,6 @@ def split_into(n: int, p: int):
 
 
 class Loglprint:
-
     def __init__(self, log_file: Path) -> None:
         log_file.parent.mkdir(exist_ok=True, parents=True)
 
@@ -91,3 +94,69 @@ class Loglprint:
     def write(self):
         self.log_stream.write("\n".join(self.buffer))
         self.close()
+
+
+class BlockPBS:
+
+    def __init__(self) -> None:
+
+        script = self._make()
+        self.jid = self.qsub(script)
+        self._deleted = False
+        atexit.register(self.qdel)
+        print("successfully set PBS block for 24 hours")
+
+    def __del__(self):
+        self.qdel()
+
+    def _make(self) -> Path:
+
+        server = gethostname()
+
+        if server in ("kohn", "planck"):
+            ppn = 16
+        else:
+            ppn = 12
+
+        s = "!/bin/bash\n"
+        s += f"#PBS -l nodes={server}:ppn={ppn},walltime=24:00:00\n"
+        s += f"#PBS -q batch\n"
+        s += f"#PBS -u {getuser()}\n"
+
+        script = Path("pbs.tmp")
+        script.write_text(s)
+
+        return script
+
+    @staticmethod
+    def qsub(script: Path) -> str:
+        qsub = which("qsub")
+        if not qsub:
+            raise RuntimeWarning("could not get qsub executable")
+        else:
+            try:
+                result = run(
+                    [qsub, str(script)], capture_output=True, text=True, cwd=Path.cwd()
+                )
+                _id = result.stdout.split(".")[1]
+            except (IndexError, CalledProcessError):
+                raise RuntimeError("could not get PBS job id")
+            else:
+                return _id
+
+    def qdel(self):
+        if self._deleted:
+            return
+
+        qdel = which("qdel")
+        if not qdel:
+            raise RuntimeWarning("could not get qdel executable")
+        else:
+            result = run(
+                [qdel, self.jid], capture_output=True, text=True, cwd=Path.cwd()
+            )
+            if result.stdout.strip() != "" or result.returncode != 0:
+                raise RuntimeError(f"could not delete PBS job {self.jid}")
+            else:
+                self._deleted = True
+                print("PBS block job deleted")

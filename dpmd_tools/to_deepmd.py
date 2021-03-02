@@ -23,7 +23,7 @@ from dpmd_tools.data import (LabeledSystemMask, LabeledSystemSelected,
 from dpmd_tools.frame_filter import ApplyConstraint
 from dpmd_tools.readers import (read_dpmd_raw, read_vasp_dir, read_vasp_out,
                                 read_xtalopt_dir)
-from dpmd_tools.utils import get_graphs, Loglprint
+from dpmd_tools.utils import get_graphs, Loglprint, BlockPBS
 
 WORK_DIR = Path.cwd()
 PARSER_CHOICES = ("xtalopt", "vasp_dirs", "vasp_files", "dpmd_raw")
@@ -90,6 +90,8 @@ def input_parser():
                    "you wish to run the scrip again")
     p.add_argument("--auto", default=False, action="store_true", help="automatically "
                    "accept when prompted to save changes")
+    p.add_argument("-b", "--block-pbs", default=False, action="store_true", help="put "
+                   "an empty job in PBS queue to stop others from trying to access GPU")
 
     args = vars(p.parse_args())
 
@@ -98,6 +100,10 @@ def input_parser():
     if len(set(args["graphs"])) == 1:
         raise ValueError("If you want to filter structures based on current "
                          "graphs you must input at least two")
+
+    if (args["dev_force"] or args["dev_energy"]) and not args["graphs"]:
+        raise RuntimeError("if --dev-force or --dev-energy is specified you must input "
+                           "also graphs argument")
 
     return args
 
@@ -206,6 +212,9 @@ def plot(multi_sys: MultiSystemsVar, chosen_sys: MultiSystemsVar, *, histogram: 
 def main():  # NOSONAR
 
     args = input_parser()
+
+    if args["block_pbs"]:
+        BlockPBS()
 
     if args["mode"] == "new":
         DPMD_DATA = WORK_DIR / "deepmd_data"

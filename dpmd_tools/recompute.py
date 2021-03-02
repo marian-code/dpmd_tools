@@ -195,7 +195,7 @@ def batch_script_pbs(
         ppn = 12
 
     s += "!/bin/bash\n"
-    s += f"#PBS -l nodes={server}:ppn={ppn},walltime=" f"{hour_length}:00:00\n"
+    s += f"#PBS -l nodes={server}:ppn={ppn},walltime={hour_length}:00:00\n"
     s += f"#PBS -q batch\n"
     s += f"#PBS -u rynik\n"
     s += f"#PBS -N {ident}\n"

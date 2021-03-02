@@ -40,9 +40,12 @@ from dpmd_tools.utils import get_graphs
 sys.path.append("/home/rynik/OneDrive/dizertacka/code/rw")
 sys.path.append("/home/rynik/OneDrive/dizertacka/code/nnp")
 
-from lammps import read_lammps_data, read_lammps_out
-from plotly_theme_setter import *
-from vasp import read_vasp_out
+try:
+    from lammps import read_lammps_data, read_lammps_out
+    from plotly_theme_setter import *
+    from vasp import read_vasp_out
+except ImportError:
+    print("cannot use compare graph script, custom modules are missing")
 
 
 COLORS = ("black", "blue", "purple", "green", "red", "cyan", "goldenrod")
