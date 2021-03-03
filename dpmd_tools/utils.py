@@ -2,13 +2,14 @@ import atexit
 import math
 from collections import deque
 from datetime import datetime
+from getpass import getuser
 from pathlib import Path
 from shutil import SameFileError, which
 from socket import gethostname
-from typing import Any, Deque, List
 from subprocess import CalledProcessError, run
-from getpass import getuser
+from typing import Any, Deque, List
 
+from colorama import Fore
 from ssh_utilities import Connection
 
 
@@ -82,8 +83,12 @@ class Loglprint:
             self.log_stream = log_file.open("w")
 
     def __call__(self, msg: Any) -> Any:
-        self.buffer.append(str(msg))
         print(msg)
+
+        m = str(msg)
+        for color in vars(Fore).values():
+            m = m.replace(color, "")
+        self.buffer.append(m)
 
     def __del__(self):
         self.close()
@@ -102,8 +107,8 @@ class BlockPBS:
 
     def __init__(self) -> None:
 
-        script = self._make()
-        self.jid = self.qsub(script)
+        self.script = self._make()
+        self.jid = self.qsub(self.script)
         atexit.register(self.qdel)
         print("successfully set PBS block for 24 hours")
 
@@ -146,7 +151,6 @@ class BlockPBS:
             except (IndexError, CalledProcessError):
                 raise RuntimeError("could not get PBS job id")
             else:
-                script.unlink()
                 return _id
 
     def qdel(self):
@@ -163,5 +167,6 @@ class BlockPBS:
             if result.stdout.strip() != "" or result.returncode != 0:
                 raise RuntimeError(f"could not delete PBS job {self.jid}")
             else:
+                self.script.unlink()
                 self._deleted = True
                 print("PBS block job deleted")

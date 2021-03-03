@@ -3,6 +3,7 @@
 from concurrent.futures import as_completed
 from copy import deepcopy
 from pathlib import Path
+from warnings import warn
 from typing import (
     Optional,
     TYPE_CHECKING,
@@ -16,6 +17,7 @@ from typing import (
     Generic,
     TypeVar,
 )
+import os
 
 import numpy as np
 from dpdata import LabeledSystem, MultiSystems
@@ -117,6 +119,18 @@ class MultiSystemsVar(MultiSystems, Generic[_SYS_TYPE]):
         for system in self.values():
             system.shuffle()
 
+    @property
+    def iteration(self) -> int:
+        it = set([s.iteration for s in self.values()])
+        if len(it) > 1:
+            warn(
+                f"not all subsystems have the same number of selection iterations: {it}"
+                f"this concerns only graph export names, so mostly you can safely "
+                f"ignore this message"
+            )
+
+        return max(it)
+
     def predict(self, graphs: List[Path]) -> Iterator["MultiSystemsVar"]:
 
         for g in graphs:
@@ -149,9 +163,7 @@ class MultiSystemsVar(MultiSystems, Generic[_SYS_TYPE]):
                         futures.write(f"Error in {p.name}: {e}")
 
     def collect_cf(
-        self,
-        paths: List[Path],
-        dir_process: Callable[[Path], List[_SYS_TYPE]],
+        self, paths: List[Path], dir_process: Callable[[Path], List[_SYS_TYPE]],
     ):
         """Parallel async data collector."""
         print("All atom types will be changed to Ge!!!")
@@ -302,6 +314,11 @@ class LabeledSystemMask(LabeledSystem):
         if self.data["used"] is not None:
             np.savetxt(folder / "used.raw", self.data["used"], fmt="%d")
 
+    @property
+    def iteration(self) -> int:
+        """Return curent selection iteration."""
+        return self.data["used"].shape[1]
+
     def has_clusters(self) -> bool:
         return "clusters" in self.data
 
@@ -324,9 +341,9 @@ class LabeledSystemMask(LabeledSystem):
     def append(self, system: "LabeledSystemMask"):
         super().append(system)
         self.data["used"] = np.concatenate((self.data["used"], system["used"]), axis=0)
-        if self.data["clusters"] is not None and system["clusters"] is not None:
+        if self.has_clusters and system.has_clusters is not None:
             self.data["clusters"] = np.concatenate(
-                (self.data["clusters"], system["clusters"]), axis=0
+                (self.data["clusters"], system.data["clusters"]), axis=0
             )
 
     def get_subsystem_indices(self, iteration: Optional[int] = None) -> np.ndarray:
@@ -448,6 +465,7 @@ class LabeledSystemMask(LabeledSystem):
         labeled_sys LabeledSystemMask
             The labeled system.
         """
+        os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
         import deepmd.DeepPot as DeepPot
 
         deeppot = DeepPot(str(dp))
@@ -460,7 +478,9 @@ class LabeledSystemMask(LabeledSystem):
 
         recompute_idx = self.get_subsystem_indices()
 
-        for idx in tqdm(range(self.get_nframes()), total=self.get_nframes(), ncols=100):
+        for idx in tqdm(
+            range(self.get_nframes()), total=self.get_nframes(), ncols=100, leave=False
+        ):
 
             ss = super().sub_system(idx)
 
@@ -531,6 +551,10 @@ class LabeledSystemSelected(LabeledSystemMask):
         idx = super().shuffle()
         self.data["iteration"] = self.data["iteration"][idx]
         return idx
+
+    @property
+    def iteration(self):
+        return self.data["iteration"].max()
 
     def to_deepmd_raw(self, folder: Path):
 

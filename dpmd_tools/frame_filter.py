@@ -1,12 +1,18 @@
 """Houses class that takes care of frame filtering for datasets construction."""
 
-from dpmd_tools.compare_graph import WORK_DIR
-from typing import Any, Callable, List, NoReturn, Optional, Tuple, Union
+import os
+from functools import wraps
+from typing import Any, Callable, List, NoReturn, Tuple
 
 import numpy as np
+from colorama import Fore, init
 
-from dpmd_tools.data import LabeledSystemMask, LabeledSystem
-from functools import wraps
+from dpmd_tools.compare_graph import WORK_DIR
+from dpmd_tools.data import LabeledSystem, LabeledSystemMask
+
+init(autoreset=True)
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"  # or any {'0', '1', '2'}
+os.environ["KMP_WARNINGS"] = "FALSE"
 
 
 def check_bracket(function: Callable) -> Callable:
@@ -35,9 +41,7 @@ class ApplyConstraint:
 
     def __init__(
         self,
-        name: str,
         system: LabeledSystemMask,
-        max_structures: Optional[Union[str, int]],
         use_prints: bool,
         lprint: Callable[[Any], NoReturn],
         append: bool = True,
@@ -46,21 +50,18 @@ class ApplyConstraint:
 
         self.lprint = lprint
         self.system = system
-        self.max_structures = max_structures
         self.cache_predictions = cache_predictions
         self.use_prints = use_prints
         self.sel_indices = np.arange(self.system.get_nframes(), dtype=int)
         self.append = append
 
-        self.lprint(f"filtering system {name}")
-
     def get_predictions(self, graphs: List[str]) -> List[LabeledSystemMask]:
 
         if not self._predictions:
-            self.lprint("computing model predictions")
+            self.lprint(f" - computing model predictions")
             self._predictions = []
             for i, g in enumerate(graphs, 1):
-                self.lprint(f"graph {i}/{len(graphs)}")
+                self.lprint(f" - graph {i}/{len(graphs)}")
 
                 # load/save cached predictions to avoid recomputing when we need to run
                 # again. This happens quite often since we need to guess bracket
@@ -70,14 +71,14 @@ class ApplyConstraint:
                 if self.cache_predictions:
                     if cache_dir.is_dir():
                         self.lprint(
-                            f"found cached predictions: "
+                            f"    - {Fore.LIGHTGREEN_EX}found cached predictions: "
                             f"{cache_dir.relative_to(WORK_DIR)}"
                         )
                         system = LabeledSystem(cache_dir, fmt="deepmd/npy")
                     else:
                         self.lprint(
-                            f"could not find cached predictions: "
-                            f"{cache_dir.relative_to(WORK_DIR)}"
+                            f"{Fore.YELLOW}    - could not find cached predictions: "
+                            f"{Fore.RESET}{cache_dir.relative_to(WORK_DIR)}"
                         )
                         system = self.system.predict(g)
                 else:
@@ -87,27 +88,33 @@ class ApplyConstraint:
 
                 if not cache_dir.is_dir():
                     self.lprint(
-                        f"saving predictions to {cache_dir.relative_to(WORK_DIR)}"
+                        f"    - saving predictions to {cache_dir.relative_to(WORK_DIR)}"
                     )
                     system.to_deepmd_npy(cache_dir)
         return self._predictions
 
-    def _record_select(self, sel_indices: np.ndarray):
+    def _record_select(self, sel_indices: np.ndarray, what: str):
         self.sel_indices = np.intersect1d(self.sel_indices, sel_indices)
+        self.lprint(f" - selected {len(sel_indices)} frames as a result of {what}")
 
     def _where(self, cond) -> np.ndarray:
         return np.argwhere(cond & (self.system.mask == 0)).flatten()
 
-    def _limit_structures(self):
+    def _selection_start(self, msg: str):
+        self.lprint(f"{Fore.LIGHTBLUE_EX}based on {msg}")
 
-        if "%" in self.max_structures:
+    def max_select(self, max_n: str):
+
+        self._selection_start(f"max structures ({max_n}) limit")
+
+        if "%" in max_n:
             max_s = int(
                 self.system.get_nframes() *
-                (float(self.max_structures.replace("%", "")) / 100)
+                (float(max_n.replace("%", "")) / 100)
             )
-            self.lprint(f"{self.max_structures} portion equals {max_s} frames")
+            self.lprint(f" - {max_n} portion equals {max_s} frames")
         else:
-            max_s = int(self.max_structures)
+            max_s = int(max_n)
 
         over_limit = len(self.sel_indices) - max_s
 
@@ -116,13 +123,13 @@ class ApplyConstraint:
             return
 
         self.lprint(
-            f"will delete {over_limit} structures from selection, because "
-            "max structures argument is specified"
+            f" - will delete {over_limit} structures from selection, because "
+            "max-select argument is specified"
         )
 
         if self.use_prints and self.system.data["clusters"] is not None:
             self.lprint(
-                "will use fingerprint based clustering to select the most diverse "
+                " - will use fingerprint based clustering to select the most diverse "
                 "structures"
             )
             count = np.unique(self.system.clusters, return_counts=True)[1]
@@ -138,9 +145,6 @@ class ApplyConstraint:
             for i, _ in enumerate(count):
                 probability[pre_select_clusters == i] = prob[i]
 
-            print(probability.shape)
-            print(self.sel_indices.shape)
-
             # norm probability to 1
             probability = probability / probability.sum()
             # select
@@ -150,7 +154,10 @@ class ApplyConstraint:
 
         else:
             if not self.system.data["clusters"] is None:
-                self.lprint("cannot use fingerprints, clusters.raw file is missing")
+                self.lprint(
+                    f"{Fore.YELLOW}cannot use fingerprints, {Fore.RESET}clusters.raw "
+                    f"{Fore.YELLOW}file is missing"
+                )
 
             # randomly select indices, the number that is selected is such that
             # taht after deleting these number of selected indices will fit into
@@ -159,7 +166,7 @@ class ApplyConstraint:
 
     @check_bracket
     def energy(self, *, bracket: Tuple[float, float], per_atom: bool = True):
-        self.lprint(f"based on energy{' per atom' if per_atom else ''}")
+        self._selection_start(f"energy{' per atom' if per_atom else ''}")
 
         energies = self.system.data["energies"]
         if per_atom:
@@ -167,12 +174,10 @@ class ApplyConstraint:
 
         s = self._where((bracket[0] < energies) & (energies < bracket[1]))
 
-        self.lprint(f"selected {len(s)} frames as a result of energy constraints")
-
-        self._record_select(s)
+        self._record_select(s, "energy constraints")
 
     def every(self, *, n_th: int):
-        self.lprint(f"based on: take every {n_th} frame criterion")
+        self._selection_start(f"take every {n_th} frame criterion")
 
         indices = np.arange(self.system.get_nframes())
 
@@ -185,14 +190,10 @@ class ApplyConstraint:
 
         s = sorted(s, key=lambda x: len(x), reverse=True)[0]
 
-        self.lprint(
-            f"selected {len(s)} frames as a result of take every n-th frame constraints"
-        )
-
-        self._record_select(s)
+        self._record_select(s, "take every n-th frame constraints")
 
     def n_from_cluster(self, *, n=int):
-        self.lprint(f"based on: select {n} random frames from each cluster criterion")
+        self._selection_start(f"select {n} random frames from each cluster criterion")
 
         if not self.system.has_clusters():
             raise RuntimeError(
@@ -205,11 +206,11 @@ class ApplyConstraint:
                 np.random.shuffle(idx)
                 selected.append(idx[:n])  # this way it does not fail if n > len(idx)
 
-            self._record_select(np.concatenate(selected))
+            self._record_select(np.concatenate(selected), "take n form each cluster")
 
     @check_bracket
     def volume(self, *, bracket: Tuple[float, float], per_atom: bool = True):
-        self.lprint(f"based on volume{' per atom' if per_atom else ''}")
+        self._selection_start(f"volume{' per atom' if per_atom else ''}")
 
         # this an array of square matrices, linalg det auto cancualtes det for
         # every sub matrix that is square
@@ -219,9 +220,7 @@ class ApplyConstraint:
 
         s = self._where((bracket[0] < volumes) & (volumes < bracket[1]))
 
-        self.lprint(f"selected {len(s)} frames as a result of volume constraints")
-
-        self._record_select(s)
+        self._record_select(s, "volume constraints")
 
     @check_bracket
     def dev_e(
@@ -242,7 +241,7 @@ class ApplyConstraint:
         --------
         :func:`dpgen.simplify.simplify.post_model_devi`
         """
-        self.lprint("based on energy std")
+        self._selection_start(f"energy std")
 
         predictions = self.get_predictions(graphs)
 
@@ -268,9 +267,7 @@ class ApplyConstraint:
 
         s = self._where((bracket[0] < e_std) & (e_std < bracket[1]))
 
-        self.lprint(f"selected {len(s)} frames as a result of energy std constraints")
-
-        self._record_select(s)
+        self._record_select(s, "energy std constraints")
 
     @check_bracket
     def dev_f(
@@ -290,14 +287,12 @@ class ApplyConstraint:
         --------
         :func:`dpgen.simplify.simplify.post_model_devi`
         """
-        self.lprint(f"based on max atom force std")
+        self._selection_start(f"max atom force std")
 
         predictions = self.get_predictions(graphs)
 
         # shape: (n_models, n_frames, n_atoms, 3)
         forces = np.stack([p.data["forces"] for p in predictions])
-
-        print(forces.shape)
 
         # shape: (n_frames, n_atoms, 3)
         if std_method:
@@ -320,32 +315,24 @@ class ApplyConstraint:
 
         s = self._where((bracket[0] < f_std_max) & (f_std_max < bracket[1]))
 
-        self.lprint(
-            f"selected {len(s)} frames as a result of max forces std constraints"
-        )
-
-        self._record_select(s)
+        self._record_select(s, "max forces std constraints")
 
     def apply(self) -> LabeledSystemMask:
+
+        self.lprint(f"{Fore.LIGHTBLUE_EX}applying filters from all conditions")
 
         if self.append:
             diff_frames = len(self.system.get_subsystem_indices()) - len(
                 self.sel_indices
             )
             self.lprint(
-                f"selecting {len(self.sel_indices)} frames in current iteration"
+                f" - selecting {len(self.sel_indices)} frames in current iteration"
             )
             if diff_frames > 0:
                 self.lprint(
-                    f"other {diff_frames} frames will be added as a result of "
+                    f" - other {diff_frames} frames will be added as a result of "
                     f"selection from prevous iterations"
                 )
-
-        # apply max structures limit if
-        # upper limit on number of selected structures is specified
-        if self.max_structures is not None:
-            self.lprint(f"applying max structures ({self.max_structures}) limit")
-            self._limit_structures()
 
         # append to existing mask
         self.system.append_mask(self.sel_indices)
@@ -360,6 +347,9 @@ class ApplyConstraint:
             try:
                 sub_system.data[attr] = self.system.data[attr][sub_indices]
             except KeyError:
-                print(f"Cannot copy key: {attr} to subsystem")
+                print(
+                    f"{Fore.YELLOW} - cannot copy key: {Fore.RESET}{attr}{Fore.YELLOW} "
+                    f"to subsystem"
+                )
 
         return sub_system
