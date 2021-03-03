@@ -24,7 +24,7 @@ import subprocess
 import sys
 from operator import itemgetter
 from pathlib import Path
-from typing import Dict, Iterator, List, Tuple
+from typing import Dict, Iterator, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -36,6 +36,7 @@ from ase.io.lammpsdata import write_lammps_data
 from ssh_utilities import Connection
 from tqdm import tqdm
 from dpmd_tools.utils import get_graphs
+from colorama import Fore, init
 
 sys.path.append("/home/rynik/OneDrive/dizertacka/code/rw")
 sys.path.append("/home/rynik/OneDrive/dizertacka/code/nnp")
@@ -47,6 +48,7 @@ try:
 except ImportError:
     print("cannot use compare graph script, custom modules are missing")
 
+init(autoreset=True)
 
 COLORS = ("black", "blue", "purple", "green", "red", "cyan", "goldenrod")
 WORK_DIR = Path.cwd()
@@ -56,29 +58,63 @@ def input_parser() -> dict:
 
     p = argparse.ArgumentParser(
         description="run E-V plots check",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    p.add_argument("-n", "--nnp", help="input dir with nnp potential, if "
-                   "none is input then potential in ./nnp_model will be used",
-                   default=None)
-    p.add_argument("-g", "--graph", default=None, nargs="+",
-                   help="use deepMD graph(s). Can also input graphs on remote "
-                   "(server@/path/to/file). Wildcard '*' is also accepted.")
-    p.add_argument("-r", "--recompute", default=False, action="store_true",
-                   help="if false only collect previous results and don't "
-                   "run lammps")
-    p.add_argument("-e", "--equation", default="birchmurnaghan", type=str,
-                   choices=("birchmurnaghan", "p3"), help="choose equation to "
-                   "fit datapoints")
-    p.add_argument("-t", "--train-dir", default=None, type=str, nargs="*",
-                   help="input directories with data subdirs so data coverage "
-                   "can be computed")
-    p.add_argument("-m", "--mtds", default=None, type=str, nargs="*",
-                   help="input paths to en_vol.npz files from MTD runs, can "
-                   "be local(e.g. ../run/en_vol.npz) or remote"
-                   "(e.g. host@/.../en_vol.npz")
-    p.add_argument("-a", "--abinit-dir", default=None, type=str, help="path to "
-                   "directory with abiniitio calculations")
+    p.add_argument(
+        "-n",
+        "--nnp",
+        help="input dir with nnp potential, if "
+        "none is input then potential in ./nnp_model will be used",
+        default=None,
+    )
+    p.add_argument(
+        "-g",
+        "--graph",
+        default=None,
+        nargs="+",
+        help="use deepMD graph(s). Can also input graphs on remote "
+        "(server@/path/to/file). Wildcard '*' is also accepted.",
+    )
+    p.add_argument(
+        "-r",
+        "--recompute",
+        default=False,
+        action="store_true",
+        help="if false only collect previous results and don't " "run lammps",
+    )
+    p.add_argument(
+        "-e",
+        "--equation",
+        default="birchmurnaghan",
+        type=str,
+        choices=("birchmurnaghan", "p3"),
+        help="choose equation to " "fit datapoints",
+    )
+    p.add_argument(
+        "-t",
+        "--train-dir",
+        default=None,
+        type=str,
+        nargs="*",
+        help="input directories with data subdirs so data coverage " "can be computed",
+    )
+    p.add_argument(
+        "-m",
+        "--mtds",
+        default=None,
+        type=str,
+        nargs="*",
+        help="input paths to en_vol.npz files from MTD runs, can "
+        "be local(e.g. ../run/en_vol.npz) or remote"
+        "(e.g. host@/.../en_vol.npz",
+    )
+    p.add_argument(
+        "-a",
+        "--abinit-dir",
+        default=None,
+        type=str,
+        help="path to " "directory with abiniitio calculations",
+    )
 
     return vars(p.parse_args())
 
@@ -97,8 +133,7 @@ def mod_lmp_in(graph: Path, lmp_in: str = "in.lammps"):
 def vasp_recompute(atom_style: str = "atomic", lmp_in: str = "in.lammps"):
 
     vasp: List[Path]
-    vasp = [d for d in WORK_DIR.rglob("*/")
-            if d.is_dir() and d.parent.name == "vasp"]
+    vasp = [d for d in WORK_DIR.rglob("*/") if d.is_dir() and d.parent.name == "vasp"]
 
     lmp_binary = shutil.which("lmp")
     print(f"using lmp binary: {lmp_binary}")
@@ -114,13 +149,13 @@ def vasp_recompute(atom_style: str = "atomic", lmp_in: str = "in.lammps"):
 
         vasp_job.set_description(f"Computing {l.parent.parent.name}/{l.name}")
 
-        write_lammps_data(str(l / "data.in"), a, atom_style=atom_style,
-                          force_skew=True)
+        write_lammps_data(str(l / "data.in"), a, atom_style=atom_style, force_skew=True)
 
         shutil.copy2(WORK_DIR / lmp_in, l)
 
-        out = subprocess.run([lmp_binary, "-in", lmp_in], cwd=l,
-                             capture_output=True, encoding="utf-8")
+        out = subprocess.run(
+            [lmp_binary, "-in", lmp_in], cwd=l, capture_output=True, encoding="utf-8"
+        )
 
         try:
             out.check_returncode()
@@ -153,8 +188,9 @@ def collect_lmp(collect_dirs: List[Path], lammpses: Tuple[str, ...]):
 
     for cd in iter_dirs:
 
-        iter_dirs.set_description(f"get lmp data: {cd.parent.parent.name}/"
-                                  f"{cd.name}")
+        iter_dirs.set_description(
+            f"get lmp data: {cd.parent.parent.name}/{cd.name}"
+        )
 
         for wd in [cd / l for l in lammpses]:
 
@@ -170,8 +206,12 @@ def collect_lmp(collect_dirs: List[Path], lammpses: Tuple[str, ...]):
 
             data = np.array(data)
 
-            np.savetxt(wd / "vol_stress.txt", data[data[:, -1].argsort()],
-                       header="# Volume Energy stress", fmt="%.6f")
+            np.savetxt(
+                wd / "vol_stress.txt",
+                data[data[:, -1].argsort()],
+                header="# Volume Energy stress",
+                fmt="%.6f",
+            )
 
 
 def collect_vasp(collect_dirs: List[Path]):
@@ -180,8 +220,9 @@ def collect_vasp(collect_dirs: List[Path]):
 
     for cd in iter_dirs:
 
-        iter_dirs.set_description(f"get vasp data: {cd.parent.parent.name}/"
-                                  f"{cd.name}")
+        iter_dirs.set_description(
+            f"get vasp data: {cd.parent.parent.name}/{cd.name}"
+        )
 
         wd = cd / "vasp"
 
@@ -196,40 +237,46 @@ def collect_vasp(collect_dirs: List[Path]):
 
         data = np.array(data)
 
-        np.savetxt(wd / "vol_stress.txt", data[data[:, -1].argsort()],
-                  header="# Volume Energy stress", fmt="%.6f")
+        np.savetxt(
+            wd / "vol_stress.txt",
+            data[data[:, -1].argsort()],
+            header="# Volume Energy stress",
+            fmt="%.6f",
+        )
 
 
-def plot_mpl(collect_dirs: List[Path], eos: str, lammpses: Tuple[str, ...],
-             labels: Tuple[str, ...]):
+def plot_mpl(
+    collect_dirs: List[Path],
+    eos: str,
+    lammpses: Tuple[str, ...],
+    labels: Tuple[str, ...],
+):
 
-    for wd, c in zip(collect_dirs, COLORS[:len(collect_dirs)]):
+    for wd, c in zip(collect_dirs, COLORS[: len(collect_dirs)]):
 
-        vasp_data = np.loadtxt(wd / "vasp" / "vol_stress.txt",
-                            skiprows=1, unpack=True)
+        vasp_data = np.loadtxt(wd / "vasp" / "vol_stress.txt", skiprows=1, unpack=True)
 
         vasp_state = EquationOfState(vasp_data[0], vasp_data[1], eos=eos)
         x, y = itemgetter(4, 5)(vasp_state.getplotdata())
 
-
         plt.scatter(vasp_data[0], vasp_data[1], s=25, c=c)
-        plt.plot(x, y, label=f"{wd} - Ab initio (VASP)", color=c,
-                linestyle="-", linewidth=2)
+        plt.plot(
+            x, y, label=f"{wd} - Ab initio (VASP)", color=c, linestyle="-", linewidth=2
+        )
 
         for l, lab, ls in zip(lammpses, labels, ("", ":", "-.", "-")):
-            lmps_data = np.loadtxt(wd / l / "vol_stress.txt",
-                                skiprows=1, unpack=True)
+            lmps_data = np.loadtxt(wd / l / "vol_stress.txt", skiprows=1, unpack=True)
 
             lmps_state = EquationOfState(lmps_data[0], lmps_data[1], eos=eos)
             x, y = itemgetter(4, 5)(lmps_state.getplotdata())
             plt.scatter(lmps_data[0], lmps_data[1], s=25, c=c)
-            plt.plot(x, y, label=f"{wd} - {lab}", color=c,
-                    linestyle=ls, linewidth=2)
+            plt.plot(x, y, label=f"{wd} - {lab}", color=c, linestyle=ls, linewidth=2)
 
     plt.xlabel("volume per atom")
     plt.ylabel("energy per atom")
-    plt.title("E-V diagram for NNP, GAP and SNAP potentials vs "
-            "Ab Initio calculations")
+    plt.title(
+        "E-V diagram for NNP, GAP and SNAP potentials vs " "Ab Initio calculations"
+    )
 
     plt.tight_layout()
 
@@ -241,60 +288,91 @@ def plot_abinit(collect_dirs: List[Path], eos: str) -> go.Figure:
 
     fig = go.Figure()
 
-    for wd, c in zip(collect_dirs, COLORS[:len(collect_dirs)]):
+    for wd, c in zip(collect_dirs, COLORS[: len(collect_dirs)]):
 
-        vasp_data = np.loadtxt(wd / "vasp" / "vol_stress.txt",
-                               skiprows=1, unpack=True)
+        vasp_data = np.loadtxt(wd / "vasp" / "vol_stress.txt", skiprows=1, unpack=True)
 
         vasp_state = EquationOfState(vasp_data[0], vasp_data[1], eos=eos)
         x, y = itemgetter(4, 5)(vasp_state.getplotdata())
 
-        fig.add_trace(go.Scattergl(
-            x=x, y=y, name=f"{wd.name} - Ab initio (VASP)",
-            line=dict(color=c, width=3, dash="solid"), legendgroup=f"vasp_{c}"
-        ))
-        fig.add_trace(go.Scattergl(
-            x=vasp_data[0], y=vasp_data[1],
-            name=f"{wd.name} - Ab initio (VASP)", mode="markers",
-            showlegend=False, line=dict(color=c, width=3),
-            marker_size=25, legendgroup=f"vasp_{c}"
-        ))
+        fig.add_trace(
+            go.Scattergl(
+                x=x,
+                y=y,
+                name=f"{wd.name} - Ab initio (VASP)",
+                line=dict(color=c, width=3, dash="solid"),
+                legendgroup=f"vasp_{c}",
+            )
+        )
+        fig.add_trace(
+            go.Scattergl(
+                x=vasp_data[0],
+                y=vasp_data[1],
+                name=f"{wd.name} - Ab initio (VASP)",
+                mode="markers",
+                showlegend=False,
+                line=dict(color=c, width=3),
+                marker_size=25,
+                legendgroup=f"vasp_{c}",
+            )
+        )
 
     return fig
 
 
-def plot_predicted(collect_dirs: List[Path], eos: str, lammpses: Tuple[str, ...],
-                   labels: Tuple[str, ...], fig: go.Figure) -> go.Figure:
+def plot_predicted(
+    collect_dirs: List[Path],
+    eos: str,
+    lammpses: Tuple[str, ...],
+    labels: Tuple[str, ...],
+    fig: go.Figure,
+) -> go.Figure:
 
-    for wd, c in zip(collect_dirs, COLORS[:len(collect_dirs)]):
+    for wd, c in zip(collect_dirs, COLORS[: len(collect_dirs)]):
         for l, lab, ls in zip(lammpses, labels, ("dash", "dot", "dashdot", "-")):
-            lmps_data = np.loadtxt(wd / l / "vol_stress.txt",
-                                skiprows=1, unpack=True)
+            lmps_data = np.loadtxt(wd / l / "vol_stress.txt", skiprows=1, unpack=True)
 
             lmps_state = EquationOfState(lmps_data[0], lmps_data[1], eos=eos)
-            x, y = itemgetter(4, 5)(lmps_state.getplotdata())
+            try:
+                x, y = itemgetter(4, 5)(lmps_state.getplotdata())
+            except RuntimeError:
+                print(f"{Fore.RED}Could not fit equation of state for {wd.name}")
+                continue
+            fig.add_trace(
+                go.Scattergl(
+                    x=x,
+                    y=y,
+                    name=f"{wd.name} - {lab}",
+                    line=dict(color=c, width=3, dash=ls),
+                    legendgroup=c,
+                )
+            )
+            fig.add_trace(
+                go.Scattergl(
+                    x=lmps_data[0],
+                    y=lmps_data[1],
+                    name=f"{wd.name} - {lab}",
+                    mode="markers",
+                    showlegend=False,
+                    legendgroup=c,
+                    marker_line_width=3,
+                    marker_symbol="circle-open",
+                    marker_size=25,
+                    line=dict(color=c, width=3),
+                )
+            )
 
-            fig.add_trace(go.Scattergl(
-                x=x, y=y, name=f"{wd.name} - {lab}",
-                line=dict(color=c, width=3, dash=ls), legendgroup=c
-            ))
-            fig.add_trace(go.Scattergl(
-                x=lmps_data[0], y=lmps_data[1],
-                name=f"{wd.name} - {lab}", mode="markers",
-                showlegend=False, legendgroup=c,
-                marker_line_width=3, marker_symbol="circle-open",
-                marker_size=25, line=dict(color=c, width=3)
-            ))
-
-    fig.update_layout(title="E-V diagram for DeepMd potential vs "
-                            "Ab Initio calculations")
+    fig.update_layout(
+        title="E-V diagram for DeepMd potential vs Ab Initio calculations"
+    )
     return fig
 
 
 def get_coverage(data_dir: Path, box: str = "box.raw", En: str = "energy.raw"):
 
-    dirs = [d for d in data_dir.rglob("*/")
-            if (d / box).is_file() and (d / En).is_file()]
+    dirs = [
+        d for d in data_dir.rglob("*/") if (d / box).is_file() and (d / En).is_file()
+    ]
 
     iter_dirs: Iterator[Path] = tqdm(dirs, ncols=100, total=len(list(dirs)))
 
@@ -307,7 +385,7 @@ def get_coverage(data_dir: Path, box: str = "box.raw", En: str = "energy.raw"):
         volumes = np.array([np.abs(np.linalg.det(c)) for c in cells]) / n_atoms
 
         if len(d.relative_to(data_dir).parts) == 1:
-            # data/md_cd/...raw 
+            # data/md_cd/...raw
             name = d.name.replace("data_", "")
         else:
             # data/md_cd/Ge136/...raw
@@ -333,7 +411,7 @@ def get_mtd_runs(paths: List[str]):
                 with c.builtins.open(p, "rb") as f:
                     temp = np.load(f)
                     data[name] = {"volume": temp["volume"], "energy": temp["energy"]}
-                    #print(data[name]["volume"])
+                    # print(data[name]["volume"])
         else:
             print(f"loading {p} from local PC")
             name = Path(p).parent.name
@@ -342,7 +420,7 @@ def get_mtd_runs(paths: List[str]):
     return data
 
 
-def run(args, graph: Path):
+def run(args, graph: Optional[Path]):
     RECOMPUTE = args["recompute"]
     EQ = args["equation"]
     TRAIN_DIR = args["train_dir"]
@@ -359,8 +437,8 @@ def run(args, graph: Path):
         if RECOMPUTE:
             vasp_recompute()
 
-        lammpses = ("lammps", )#, "gc_lammps")
-        labels = ("DPMD", )
+        lammpses = ("lammps",)  # , "gc_lammps")
+        labels = ("DPMD",)
 
         collect_lmp(collect_dirs, lammpses)
         collect_vasp(collect_dirs)
@@ -372,34 +450,36 @@ def run(args, graph: Path):
         fig.update_layout(title="dataset E-V coverage")
 
     fig.update_layout(
-        xaxis_title=f'V [{ANGSTROM}{POW3} / atom]',
-        yaxis_title='E [eV / atom]',
-        template="minimovka"
+        xaxis_title=f"V [{ANGSTROM}{POW3} / atom]",
+        yaxis_title="E [eV / atom]",
+        template="minimovka",
     )
 
     if MTD_RUNS:
         mtd_data = get_mtd_runs(MTD_RUNS)
 
         for name, mdata in mtd_data.items():
-            fig.add_trace(go.Scattergl(
-                x=mdata["volume"], y=mdata["energy"], mode='markers', name=name
-            ))
+            fig.add_trace(
+                go.Scattergl(
+                    x=mdata["volume"], y=mdata["energy"], mode="markers", name=name
+                )
+            )
 
     if TRAIN_DIR:
         for t in TRAIN_DIR:
             coverage_data = get_coverage(Path(t))
 
             for name, cdata in coverage_data.items():
-                fig.add_trace(go.Scattergl(
-                    x=cdata["volume"], y=cdata["energy"],
-                    mode='markers', name=name
-                ))
-
+                fig.add_trace(
+                    go.Scattergl(
+                        x=cdata["volume"], y=cdata["energy"], mode="markers", name=name
+                    )
+                )
 
     fig.write_html(f"E-V({graph.stem}).html", include_plotlyjs="cdn")
 
 
-if __name__ == "__main__":
+def main():
     args = input_parser()
 
     if args["graph"]:
@@ -410,3 +490,7 @@ if __name__ == "__main__":
             run(args, graph)
     else:
         run(args, None)
+
+
+if __name__ == "__main__":
+    main()

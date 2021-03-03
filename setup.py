@@ -49,6 +49,7 @@ setup(
     entry_points={"console_scripts": [
         "to_deepmd = dpmd_tools.to_deepmd:main",
         "cluster_deepmd = dpmd_tools.data_cluster:main",
-
+        "ev_graph = dpmd_tools.compare_graph:main",
+        "upload_dataset = dpmd_tools.upload_dataset:main"
     ]},
 )
