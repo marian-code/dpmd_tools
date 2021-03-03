@@ -168,7 +168,7 @@ def batch_script_ibm(
     if scan:
         s += "mpiexec /gpfs/home/dominika/vasp.5.3.2.complex.27.10.14"
     else:
-        s += "mpiexec /gpfs/home/kohulak/Software/vasp.5.4.4-testing/" "bin/vasp_std"
+        s += "mpiexec /gpfs/home/kohulak/Software/vasp.5.4.4-testing/bin/vasp_std"
 
     s += "touch done"
     return s
@@ -215,7 +215,7 @@ def batch_script_pbs(
     s += "cd $PBS_O_WORKDIR\n"
     s += "source /opt/intel/bin/compilervars.sh intel64\n"
     s += 'export PATH="$PATH:/opt/intel/bin"\n'
-    s += 'export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/opt/intel/mkl/' 'lib/intel64_lin"\n'
+    s += 'export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/opt/intel/mkl/lib/intel64_lin"\n'
     s += f"/home/s/bin/mpirun -np {ppn} $VASP"
 
     s += "touch done"
@@ -296,7 +296,7 @@ class Recompute:
         self.SLICE = slice(start, stop)
         self.RECOMPUTE_FAILED = recompute_failed
         self.remote_settings = remote_settings
-        self.KP_spacing = KP_spacing
+        self.KP_spacing = KP_spacing  # NOSONAR
         if incar_template:
             self.INCAR_TEMPLATE = Vasp(xc="PBE")
             self.INCAR_TEMPLATE.read_incar(incar_template)
@@ -367,7 +367,7 @@ class Recompute:
         scan: bool,
         data_dir: Path,
         dump_file: Path,
-        KP_spacing: Optional[float] = None,
+        KP_spacing: Optional[float] = None,  # NOSONAR
     ) -> "Recompute":
         """All parameters have the same meaning as in __init__ method.
 
@@ -486,7 +486,7 @@ class Recompute:
             data.append({"index": i, "atoms": a, "atoms_size": len(a)})
 
         log.info(f"Found {len(data) + len(running)} jobs to compute.")
-        log.info(f"{len(running)} jobs are already scheduled to run or " f"running.")
+        log.info(f"{len(running)} jobs are already scheduled to run or running.")
         if self.RECOMPUTE_FAILED:
             log.info(
                 f"Out of that, {failed} jobs are failed and are set to "
@@ -494,7 +494,7 @@ class Recompute:
             )
         else:
             log.info(
-                f"Also found {failed} failed jobs which will not be " f"recomputed\n"
+                f"Also found {failed} failed jobs which will not be recomputed\n"
             )
 
         # compute total atoms count and save to estimate remainig time
@@ -538,7 +538,7 @@ class Recompute:
                 calc_time = 0.0
             else:
                 log.info(
-                    f"Current computation CPU time: " f"{timedelta(seconds=calc_time)}"
+                    f"Current computation CPU time: {timedelta(seconds=calc_time)}"
                 )
             finally:
                 self.total_calc_time += calc_time
@@ -554,10 +554,10 @@ class Recompute:
         left_atoms = sum([j["atoms_size"] for j in self.job_data])
         cpu_eta = cpu_avg * left_atoms
 
-        log.info(f"Average CPU time/atom: " f"{timedelta(seconds=cpu_avg)}")
-        log.info(f"Estimated CPU time left: " f"{timedelta(seconds=cpu_eta)}")
+        log.info(f"Average CPU time/atom: {timedelta(seconds=cpu_avg)}")
+        log.info(f"Estimated CPU time left: {timedelta(seconds=cpu_eta)}")
         log.info(
-            f"Total CPU time from start: " f"{timedelta(seconds=self.total_calc_time)}"
+            f"Total CPU time from start: {timedelta(seconds=self.total_calc_time)}"
         )
 
         total_time = time() - self.start_time
@@ -567,12 +567,12 @@ class Recompute:
             time_avg = total_time / (self.total_atoms - left_atoms)
         time_eta = left_atoms * time_avg
 
-        log.info(f"Average time/atom: " f"{timedelta(seconds=time_avg)}")
-        log.info(f"Estimated time left: " f"{timedelta(seconds=time_eta)}")
-        log.info(f"Total time from start: " f"{timedelta(seconds=total_time)}")
+        log.info(f"Average time/atom: {timedelta(seconds=time_avg)}")
+        log.info(f"Estimated time left: {timedelta(seconds=time_eta)}")
+        log.info(f"Total time from start: {timedelta(seconds=total_time)}")
 
         log.info(
-            "------------------------------" "----------------------------------\n"
+            "----------------------------------------------------------------\n"
         )
 
     def _wait(self):
@@ -615,7 +615,6 @@ class Recompute:
                 # check if error occured
                 elif out.stderr:
                     log.warning(f"error capturing qstat out {out.stderr}")
-                    continue
 
                 # check if all job names are still in queue
                 elif all(j["job_name"] in out.stdout for j in jobs):
@@ -637,8 +636,6 @@ class Recompute:
             wait_time += 5
 
         print(" " * 100)
-
-        return
 
     def get_incar(self, server: str, atoms: Atoms, calc_dir: Path):
 
@@ -698,7 +695,7 @@ class Recompute:
             # self.get_batch_script(server, atoms, job_name)
         else:
             job_script = pbs.read_text().replace("GAP_IDENT", job_name)
-            if not "touch done" in job_script:
+            if "touch done" not in job_script:
                 job_script += "touch done"
 
         (calc_dir / "pbs.job").write_text(job_script)
@@ -769,7 +766,7 @@ class Recompute:
                         job_intervals.append(f"{group[0][1]}-{group[-1][1]}")
 
                 log.info(f"{k:<11}: {len(v['jobs']):>2}/{v['max']:<2} running")
-                log.info(f"-> ids     : " f"{', '.join(job_intervals)}")
+                log.info(f"-> ids     : {', '.join(job_intervals)}")
 
         # delete host which will not receive further jobs
         for td in to_delete:
@@ -911,7 +908,7 @@ if __name__ == "__main__":
 
     if DUMP_FILE.is_file():
         inpt = input(
-            "Dump file present, " "do you want to restart calculation? [y/n]: "
+            "Dump file present, do you want to restart calculation? [y/n]: "
         )
         if inpt == "y":
             restart = True
@@ -941,7 +938,7 @@ if __name__ == "__main__":
             },
             "kohn": {
                 "max_jobs": 1,
-                "remote_dir": ("/home/rynik/Raid/dizertacka/train_Si/" "recompute/"),
+                "remote_dir": ("/home/rynik/Raid/dizertacka/train_Si/recompute/"),
             },
         }
         for h in ("hartree", "fock", "landau", "schrodinger"):

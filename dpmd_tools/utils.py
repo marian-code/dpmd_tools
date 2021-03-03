@@ -98,11 +98,12 @@ class Loglprint:
 
 class BlockPBS:
 
+    _deleted = False
+
     def __init__(self) -> None:
 
         script = self._make()
         self.jid = self.qsub(script)
-        self._deleted = False
         atexit.register(self.qdel)
         print("successfully set PBS block for 24 hours")
 
@@ -111,17 +112,20 @@ class BlockPBS:
 
     def _make(self) -> Path:
 
-        server = gethostname()
+        server = gethostname().lower()
 
         if server in ("kohn", "planck"):
             ppn = 16
         else:
             ppn = 12
 
-        s = "!/bin/bash\n"
-        s += f"#PBS -l nodes={server}:ppn={ppn},walltime=24:00:00\n"
+        s = "#!/bin/bash\n"
+        s += f"#PBS -l nodes={server.lower()}:ppn={ppn},walltime=24:00:00\n"
         s += f"#PBS -q batch\n"
+        s += f"#PBS -k n\n"  # force PBS to delete stdout and stderr files
         s += f"#PBS -u {getuser()}\n"
+        s += f"#PBS -N GPU-block-job\n"
+        s += f"sleep 24h"
 
         script = Path("pbs.tmp")
         script.write_text(s)
@@ -138,10 +142,11 @@ class BlockPBS:
                 result = run(
                     [qsub, str(script)], capture_output=True, text=True, cwd=Path.cwd()
                 )
-                _id = result.stdout.split(".")[1]
+                _id = result.stdout.split(".")[0]
             except (IndexError, CalledProcessError):
                 raise RuntimeError("could not get PBS job id")
             else:
+                script.unlink()
                 return _id
 
     def qdel(self):
