@@ -1,5 +1,7 @@
+"""Houses class that takes care of frame filtering for datasets construction."""
+
 from dpmd_tools.compare_graph import WORK_DIR
-from typing import Any, Callable, List, NoReturn, Tuple
+from typing import Any, Callable, List, NoReturn, Optional, Tuple, Union
 
 import numpy as np
 
@@ -9,6 +11,7 @@ from functools import wraps
 
 def check_bracket(function: Callable) -> Callable:
     """Check if bracketing interval was inputin correct order."""
+
     @wraps(function)
     def decorator(self: "ApplyConstraint", **kwargs) -> Callable:
 
@@ -34,7 +37,7 @@ class ApplyConstraint:
         self,
         name: str,
         system: LabeledSystemMask,
-        max_structures: int,
+        max_structures: Optional[Union[str, int]],
         use_prints: bool,
         lprint: Callable[[Any], NoReturn],
         append: bool = True,
@@ -97,7 +100,16 @@ class ApplyConstraint:
 
     def _limit_structures(self):
 
-        over_limit = len(self.sel_indices) - self.max_structures
+        if "%" in self.max_structures:
+            max_s = int(
+                self.system.get_nframes() *
+                (float(self.max_structures.replace("%", "")) / 100)
+            )
+            self.lprint(f"{self.max_structures} portion equals {max_s} frames")
+        else:
+            max_s = int(self.max_structures)
+
+        over_limit = len(self.sel_indices) - max_s
 
         # if the number of selected structures is not over limit, return
         if over_limit <= 0:
@@ -133,7 +145,7 @@ class ApplyConstraint:
             probability = probability / probability.sum()
             # select
             self.sel_indices = np.random.choice(
-                self.sel_indices, self.max_structures, p=probability, replace=False
+                self.sel_indices, max_s, p=probability, replace=False
             )
 
         else:
@@ -143,9 +155,7 @@ class ApplyConstraint:
             # randomly select indices, the number that is selected is such that
             # taht after deleting these number of selected indices will fit into
             # the max_structures limit
-            self.sel_indices = np.random.choice(
-                self.sel_indices, self.max_structures, replace=False
-            )
+            self.sel_indices = np.random.choice(self.sel_indices, max_s, replace=False)
 
     @check_bracket
     def energy(self, *, bracket: Tuple[float, float], per_atom: bool = True):

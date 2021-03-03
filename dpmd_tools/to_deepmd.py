@@ -74,10 +74,13 @@ def input_parser():
     p.add_argument("-f", "--fingerprint-use", default=False, action="store_true",
                    help="if max-select argument is used that this option specifies "
                    "that subsample will be selected based on fingerprints")
-    p.add_argument("-ms", "--max-select", default=None, type=int, help="set max number "
+    p.add_argument("-ms", "--max-select", default=None, type=str, help="set max number "
                    "of structures that will be selected. If above conditions produce "
                    "more, subsample will be selected randomly, or based on "
-                   "fingerprints if available")
+                   "fingerprints if available. Can be also input as a percent of all "
+                   "dataset e.g. 10% from 5000 = 500 frams selected. The percent "
+                   "option computes the potrion from whole dataset length not only "
+                   "from unselected structures")
     p.add_argument("-mf", "--min-frames", default=30, type=int, help="specify minimal "
                    "munber of frames a system must have. Smaller systems are deleted. "
                    "This is due to difficulties in partitioning and inefficiency of "
@@ -96,6 +99,9 @@ def input_parser():
     args = vars(p.parse_args())
 
     args["graphs"] = get_graphs(args["graphs"])
+
+    if not args["max_select"].replace("%", "").isdigit():
+        raise TypeError("--max-select argument was specified with wrong value type")
 
     if len(set(args["graphs"])) == 1:
         raise ValueError("If you want to filter structures based on current "
