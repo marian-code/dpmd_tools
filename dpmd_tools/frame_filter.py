@@ -116,7 +116,7 @@ class ApplyConstraint:
             return
 
         self.lprint(
-            f"will delete {over_limit} additional structures, because "
+            f"will delete {over_limit} structures from selection, because "
             "max structures argument is specified"
         )
 
