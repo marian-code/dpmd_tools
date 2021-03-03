@@ -54,6 +54,10 @@ class ApplyConstraint:
         self.use_prints = use_prints
         self.sel_indices = np.arange(self.system.get_nframes(), dtype=int)
         self.append = append
+        lprint(
+            f" - {len(system.get_subsystem_indices())} structures of "
+            f"{system.get_nframes()} aleready selected in in previous "
+            f"{system.iteration} iterations")
 
     def get_predictions(self, graphs: List[str]) -> List[LabeledSystemMask]:
 

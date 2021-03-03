@@ -101,6 +101,8 @@ class MultiSystemsVar(MultiSystems, Generic[_SYS_TYPE]):
                 str((folder / system_name).resolve()), set_size=ss, prec=prec
             )
 
+    # TODO something fishy is going on here
+    # npy and raw files do not correspond
     def to_deepmd_raw(self, folder: Path):
         for system_name, system in self.systems.items():
             path = folder / system_name
@@ -296,6 +298,7 @@ class LabeledSystemMask(LabeledSystem):
 
     def to_deepmd_raw(self, folder: Path):
 
+        # TODO do not need to overwrite in all but need to write in for_train !!!!
         files_exist = [
             (folder / f"{name}.raw").is_file()
             for name in (

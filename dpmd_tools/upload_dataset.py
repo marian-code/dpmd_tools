@@ -107,7 +107,7 @@ def main():
         print("------------------------------------------------------------------")
         for src, dst, local_dst in dirs_mapping:
             dst.mkdir(exist_ok=True, parents=True)
-            #c.shutil.upload_tree(src, dst, remove_after=False)#, quiet="stats")
+            c.shutil.upload_tree(src, dst, remove_after=False)#, quiet="stats")
             if args["local"]:
                 try:
                     shutil.copytree(src, local_dst)
