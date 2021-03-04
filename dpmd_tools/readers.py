@@ -50,7 +50,7 @@ def read_xtalopt_dir(path: Path) -> List[MaskedSystem]:
             outcar = _extract(p, tempdir)
 
             if outcar:
-                systems.append(MaskedSystem(outcar, fmt="vasp/outcar"))
+                systems.append(MaskedSystem(file_name=outcar, fmt="vasp/outcar"))
 
     return systems
 
@@ -62,8 +62,8 @@ def read_vasp_dir(path: Path) -> List[MaskedSystem]:
 
 
 def read_vasp_out(outcar: Path) -> List[MaskedSystem]:
-    return [MaskedSystem(outcar, fmt="vasp/outcar")]
+    return [MaskedSystem(file_name=outcar, fmt="vasp/outcar")]
 
 
 def read_dpmd_raw(system_dir: Path) -> List[MaskedSystem]:
-    return [MaskedSystem(system_dir, fmt="deepmd/raw")]
+    return [MaskedSystem(file_name=system_dir, fmt="deepmd/raw")]

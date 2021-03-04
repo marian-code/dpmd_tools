@@ -70,18 +70,38 @@ class MaskedSystem(LabeledSystem):
     data: "_DATA"
     has_clusters: bool = False
 
-    def __new__(cls, *args, **kwargs):
+    def __new__(
+        cls,
+        *,
+        file_name: Optional[Path] = None,
+        fmt: str = "auto",
+        type_map: List[str] = None,
+        begin: int = 0,
+        step: int = 1,
+        data: Optional["_DATA"] = None,
+        **kwargs
+    ):
 
-        if (kwargs["file_name"] / "clusters.raw").is_file():
-            # import here to prevent circular imports
-            from .clustered_system import ClusteredSystem
-            return ClusteredSystem(*args, **kwargs)
-        else:
-            instance = super(MaskedSystem, cls).__new__(cls, *args, **kwargs)
-            return instance
+        if file_name is not None:
+            if (file_name / "clusters.raw").is_file():
+                # import here to prevent circular imports
+                from .clustered_system import ClusteredSystem
+                return ClusteredSystem(
+                    file_name=file_name,
+                    fmt=fmt,
+                    type_map=type_map,
+                    begin=begin,
+                    step=step,
+                    data=data,
+                    **kwargs
+                )
+
+        instance = super(MaskedSystem, cls).__new__(cls)
+        return instance
 
     def __init__(  # NOSONAR
         self,
+        *,
         file_name: Optional[Path] = None,
         fmt: str = "auto",
         type_map: List[str] = None,
@@ -112,7 +132,7 @@ class MaskedSystem(LabeledSystem):
             raise AllSelectedError("All structures are alread selected")
 
     # * custom methods *****************************************************************
-    def _init_used(self, fmt: str, file_name: Path):
+    def _init_used(self, fmt: str, file_name: Optional[Path]):
         """Initialize `used` masking array.
 
         Parameters
@@ -181,7 +201,7 @@ class MaskedSystem(LabeledSystem):
             self.data["used"] = np.hstack((self.data["used"], np.atleast_2d(mask).T))
 
     def get_subsystem_indices(self, iteration: Optional[int] = None) -> np.ndarray:
-        """Get indices of frames filtered by iterations.
+        """Get indices of frames filtered by previous iterations.
 
         Parameters
         ----------

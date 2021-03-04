@@ -114,6 +114,16 @@ class MultiSystemsVar(MultiSystems, Generic[_SYS_TYPE]):
 
             yield multi_sys
 
+    def collect_debug(
+        self, paths: List[Path], dir_process: Callable[[Path], List[_SYS_TYPE]]
+    ):
+        """Single core serial data collector with no exception catching."""
+
+        for path in paths:
+            systems = dir_process(path)
+            for s in systems:
+                self.append(s)
+
     def collect_single(
         self, paths: List[Path], dir_process: Callable[[Path], List[_SYS_TYPE]]
     ):

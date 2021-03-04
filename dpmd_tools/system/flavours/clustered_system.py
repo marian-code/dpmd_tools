@@ -1,7 +1,8 @@
 """Helper module with dpdata subclasses."""
 
 from copy import deepcopy
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING, Optional, Union, List
+from pathlib import Path
 
 import numpy as np
 from typing_extensions import TypedDict
@@ -39,9 +40,33 @@ class ClusteredSystem(MaskedSystem):
     data: "CLUST_DATA"
     has_clusters: bool = True
 
-    def __init__(self, *args, **kwargs,) -> None:  # NOSONAR
-        super(ClusteredSystem, self).__init__(*args, **kwargs)
-        self.data["clusters"] = np.loadtxt(kwargs["file_name"] / "clusters.raw")
+    def __new__(cls, *args, **kwargs):
+        instance = super(ClusteredSystem, cls).__new__(cls)
+        return instance
+
+    def __init__(  # NOSONAR
+        self,
+        *,
+        file_name: Optional[Path] = None,
+        fmt: str = "auto",
+        type_map: List[str] = None,
+        begin: int = 0,
+        step: int = 1,
+        data: Optional["CLUST_DATA"] = None,
+        **kwargs,
+    ) -> None:
+        super(ClusteredSystem, self).__init__(
+            file_name=file_name,
+            fmt=fmt,
+            type_map=type_map,
+            begin=begin,
+            step=step,
+            data=data,
+            **kwargs,
+        )
+
+        if not data:
+            self.data["clusters"] = np.loadtxt(file_name / "clusters.raw")
 
     @property
     def clusters(self) -> Optional[np.ndarray]:

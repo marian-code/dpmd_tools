@@ -145,7 +145,7 @@ def input_parser():
         "of structures that will be selected. If above conditions produce "
         "more, subsample will be selected randomly, or based on "
         "fingerprints if available. Can be also input as a percent of all "
-        "dataset e.g. 10% from 5000 = 500 frams selected. The percent "
+        "dataset e.g. 10%% from 5000 = 500 frams selected. The percent "
         "option computes the potrion from whole dataset length not only "
         "from unselected structures",
     )
@@ -193,8 +193,9 @@ def input_parser():
 
     args["graphs"] = get_graphs(args["graphs"])
 
-    if not args["max_select"].replace("%", "").isdigit():
-        raise TypeError("--max-select argument was specified with wrong value type")
+    if args["max_select"] is not None:
+        if not args["max_select"].replace("%", "").isdigit():
+            raise TypeError("--max-select argument was specified with wrong value type")
 
     if len(set(args["graphs"])) == 1:
         raise ValueError(
@@ -266,13 +267,13 @@ def plot(multi_sys: MultiSystemsVar, chosen_sys: MultiSystemsVar, *, histogram: 
     for what in ("energies_std", "forces_std_max"):
         if what == "energies_std" and not has_e_std:
             print(
-                f"{Fore.YELLOW}skipping plot energies std, "
+                f" - {Fore.YELLOW}skipping plot energies std, "
                 f"this was not selection criterion"
             )
             continue
         elif what == "forces_std_max" and not has_f_std:
             print(
-                f"{Fore.YELLOW}skipping plot forces std max, "
+                f" - {Fore.YELLOW}skipping plot forces std max, "
                 f"this was not selection criterion"
             )
             continue
@@ -361,11 +362,11 @@ def main():  # NOSONAR
 
     lprint(f"{Fore.GREEN}Script was run with these arguments -------------------------")
     for arg, value in args.items():
-        lprint(f"{arg:20}: {value}")
+        lprint(f" - {arg:20}: {value}")
 
     lprint(f"{Fore.GREEN}will read from these paths:")
     for p in paths:
-        lprint(f"-{p}")
+        lprint(f" - {p}")
 
     if not args["graphs"]:
         warn(
@@ -383,7 +384,7 @@ def main():  # NOSONAR
     elif args["parser"] == "vasp_files":
         multi_sys.collect_cf(paths, read_vasp_out)
     elif args["parser"] == "dpmd_raw":
-        multi_sys.collect_cf(paths, read_dpmd_raw)
+        multi_sys.collect_debug(paths, read_dpmd_raw)
     else:
         raise NotImplementedError(
             f"{Fore.RED}parser for {Fore.RESET}{args['parser']}{Fore.RED} "
@@ -396,19 +397,17 @@ def main():  # NOSONAR
 
     lprint(f"{Fore.GREEN}got these systems -------------------------------------------")
     for name, system in multi_sys.items():
-        lprint(f"{name:6} -> {len(system):4} structures")
+        lprint(f" - {name:6} -> {len(system):4} structures")
 
     lprint(f"{Fore.GREEN}filtering data ----------------------------------------------")
-
-    multi_sys.predict(args["graphs"])
 
     # here we will store the filtered structures that we want to use for
     # training
     chosen_sys = MultiSystemsVar[SelectedSystem]()
 
     lprint(
-        f"{Fore.LIGHTBLUE_EX}size before{Fore.RESET} "
-        f"{sum([len(s) for s in multi_sys.values()])}"
+        f"{Fore.LIGHTBLUE_EX}Number of frames before filtering{Fore.RESET} "
+        f"{multi_sys.get_nframes()}"
     )
     for k, system in multi_sys.items():
         lprint(f"{Fore.LIGHTGREEN_EX}filtering system {k} ****************************")
@@ -439,9 +438,9 @@ def main():  # NOSONAR
         chosen_sys.append(constraints.apply())
 
     lprint(
-        f"{Fore.LIGHTBLUE_EX}size after {Fore.RESET}"
-        f"{sum([len(s) for s in chosen_sys.values()])},{Fore.LIGHTBLUE_EX} "
-        f"this includes previous iterations selections"
+        f"{Fore.LIGHTBLUE_EX}Number of frames after filtering {Fore.RESET}"
+        f"{chosen_sys.get_nframes()},{Fore.LIGHTBLUE_EX} this includes previous "
+        f"iterations selections"
     )
 
     if args["graphs"]:
@@ -476,7 +475,6 @@ def main():  # NOSONAR
     DPMD_DATA_TRAIN.mkdir(exist_ok=True, parents=True)
 
     lprint(f"{Fore.GREEN}saving data for training ------------------------------------")
-    #chosen_sys.to_deepmd_raw(DPMD_DATA_TRAIN)
     chosen_sys.to_deepmd_npy(DPMD_DATA_TRAIN, set_size="auto")
 
     lprint(f"{Fore.GREEN}saving all data for further use -----------------------------")

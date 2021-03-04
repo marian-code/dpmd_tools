@@ -8,7 +8,8 @@ import numpy as np
 from colorama import Fore, init
 
 from dpmd_tools.compare_graph import WORK_DIR
-from dpmd_tools.system import LabeledSystem, MaskedSystem
+from dpmd_tools.system import MaskedSystem
+from dpdata import LabeledSystem
 
 init(autoreset=True)
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"  # or any {'0', '1', '2'}
@@ -54,11 +55,11 @@ class ApplyConstraint:
         self.use_prints = use_prints
         self.sel_indices = np.arange(self.system.get_nframes(), dtype=int)
         self.append = append
-        lprint(
-            f" - {len(system.get_subsystem_indices())} structures of "
-            f"{system.get_nframes()} aleready selected in in previous "
-            f"{system.iteration} iterations"
-        )
+        self._init()
+
+    def _init(self):
+        self._selection_start(f"previous {self.system.iteration} iterations")
+        self.lprint(f" - selected {len(self.system.get_subsystem_indices())} frame(s)")
 
     def get_predictions(self, graphs: List[str]) -> List[MaskedSystem]:
 
@@ -77,12 +78,12 @@ class ApplyConstraint:
                     if cache_dir.is_dir():
                         self.lprint(
                             f"    - {Fore.LIGHTGREEN_EX}found cached predictions: "
-                            f"{cache_dir.relative_to(WORK_DIR)}"
+                            f"{Fore.RESET}{cache_dir.relative_to(WORK_DIR)}"
                         )
                         system = LabeledSystem(cache_dir, fmt="deepmd/npy")
                     else:
                         self.lprint(
-                            f"{Fore.YELLOW}    - could not find cached predictions: "
+                            f"    - {Fore.YELLOW}could not find cached predictions: "
                             f"{Fore.RESET}{cache_dir.relative_to(WORK_DIR)}"
                         )
                         system = self.system.predict(g)
@@ -98,9 +99,9 @@ class ApplyConstraint:
                     system.to_deepmd_npy(cache_dir)
         return self._predictions
 
-    def _record_select(self, sel_indices: np.ndarray, what: str):
+    def _record_select(self, sel_indices: np.ndarray):
         self.sel_indices = np.intersect1d(self.sel_indices, sel_indices)
-        self.lprint(f" - selected {len(sel_indices)} frames as a result of {what}")
+        self.lprint(f" - selected {len(sel_indices)} frame(s)")
 
     def _where(self, cond) -> np.ndarray:
         return np.argwhere(cond & (self.system.mask == 0)).flatten()
@@ -114,8 +115,7 @@ class ApplyConstraint:
 
         if "%" in max_n:
             max_s = int(
-                self.system.get_nframes() *
-                (float(max_n.replace("%", "")) / 100)
+                self.system.get_nframes() * (float(max_n.replace("%", "")) / 100)
             )
             self.lprint(f" - {max_n} portion equals {max_s} frames")
         else:
@@ -125,17 +125,17 @@ class ApplyConstraint:
 
         # if the number of selected structures is not over limit, return
         if over_limit <= 0:
+            self.lprint(
+                f" - number of selected frames {len(self.sel_indices)} is lower "
+                f"than set max frames limit, skipping this criterion ..."
+            )
             return
 
-        self.lprint(
-            f" - will delete {over_limit} structures from selection, because "
-            "max-select argument is specified"
-        )
-
-        if self.use_prints and self.system.data["clusters"] is not None:
+        if self.use_prints and self.system.has_clusters:
             self.lprint(
-                " - will use fingerprint based clustering to select the most diverse "
-                "structures"
+                f" - {Fore.LIGHTGREEN_EX}found {Fore.RESET}clusters.raw"
+                f"{Fore.LIGHTGREEN_EX} file and will use fingerprints based clustering "
+                f"to select the most diverse structures"
             )
             count = np.unique(self.system.clusters, return_counts=True)[1]
             # get probability we will encounter cluster 'i'
@@ -153,21 +153,21 @@ class ApplyConstraint:
             # norm probability to 1
             probability = probability / probability.sum()
             # select
-            self.sel_indices = np.random.choice(
-                self.sel_indices, max_s, p=probability, replace=False
-            )
+            s = np.random.choice(self.sel_indices, max_s, p=probability, replace=False)
 
         else:
-            if not self.system.data["clusters"] is None:
+            if not self.system.has_clusters:
                 self.lprint(
-                    f"{Fore.YELLOW}cannot use fingerprints, {Fore.RESET}clusters.raw "
+                    f" - {Fore.YELLOW}cannot use fingerprints, {Fore.RESET}clusters.raw "
                     f"{Fore.YELLOW}file is missing"
                 )
 
             # randomly select indices, the number that is selected is such that
             # taht after deleting these number of selected indices will fit into
             # the max_structures limit
-            self.sel_indices = np.random.choice(self.sel_indices, max_s, replace=False)
+            s = np.random.choice(self.sel_indices, max_s, replace=False)
+
+        self._record_select(s)
 
     @check_bracket
     def energy(self, *, bracket: Tuple[float, float], per_atom: bool = True):
@@ -179,7 +179,7 @@ class ApplyConstraint:
 
         s = self._where((bracket[0] < energies) & (energies < bracket[1]))
 
-        self._record_select(s, "energy constraints")
+        self._record_select(s)
 
     def every(self, *, n_th: int):
         self._selection_start(f"take every {n_th} frame")
@@ -195,7 +195,7 @@ class ApplyConstraint:
 
         s = sorted(s, key=lambda x: len(x), reverse=True)[0]
 
-        self._record_select(s, "take every n-th frame")
+        self._record_select(s)
 
     def n_from_cluster(self, *, n=int):
         self._selection_start(f"select {n} random frames from each cluster")
@@ -211,7 +211,7 @@ class ApplyConstraint:
                 np.random.shuffle(idx)
                 selected.append(idx[:n])  # this way it does not fail if n > len(idx)
 
-            self._record_select(np.concatenate(selected), "take n form each cluster")
+            self._record_select(np.concatenate(selected))
 
     @check_bracket
     def volume(self, *, bracket: Tuple[float, float], per_atom: bool = True):
@@ -225,7 +225,7 @@ class ApplyConstraint:
 
         s = self._where((bracket[0] < volumes) & (volumes < bracket[1]))
 
-        self._record_select(s, "volume")
+        self._record_select(s)
 
     @check_bracket
     def dev_e(
@@ -272,7 +272,7 @@ class ApplyConstraint:
 
         s = self._where((bracket[0] < e_std) & (e_std < bracket[1]))
 
-        self._record_select(s, "energy std")
+        self._record_select(s)
 
     @check_bracket
     def dev_f(
@@ -320,23 +320,20 @@ class ApplyConstraint:
 
         s = self._where((bracket[0] < f_std_max) & (f_std_max < bracket[1]))
 
-        self._record_select(s, "max forces std")
+        self._record_select(s)
 
     def apply(self) -> MaskedSystem:
 
         self.lprint(f"{Fore.LIGHTBLUE_EX}applying filters from all conditions")
 
         if self.append:
-            diff_frames = len(self.system.get_subsystem_indices()) - len(
-                self.sel_indices
-            )
             self.lprint(
                 f" - selecting {len(self.sel_indices)} frames in current iteration"
             )
-            if diff_frames > 0:
+            if len(self.system.get_subsystem_indices()) > 0:
                 self.lprint(
-                    f" - other {diff_frames} frames will be added as a result of "
-                    f"selection from prevous iterations"
+                    f" - other {len(self.system.get_subsystem_indices())} frames "
+                    f"will be added as a result of selection from prevous iterations"
                 )
 
         # append to existing mask
@@ -354,7 +351,7 @@ class ApplyConstraint:
             except KeyError:
                 print(
                     f"{Fore.YELLOW} - cannot copy key: {Fore.RESET}{attr}{Fore.YELLOW} "
-                    f"to subsystem"
+                    f"to subsystem, respective selection criterion did not run"
                 )
 
         return sub_system
