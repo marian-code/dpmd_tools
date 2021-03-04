@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from colorama import Fore, init
+from dpmd_tools.utils import init_yappi
 
 from dpmd_tools.system import MaskedSystem, SelectedSystem, MultiSystemsVar
 from dpmd_tools.frame_filter import ApplyConstraint
@@ -188,6 +189,12 @@ def input_parser():
         action="store_true",
         help="put an empty job in PBS queue to stop others from trying to access GPU",
     )
+    p.add_argument(
+        "--profile",
+        default=False,
+        action="store_true",
+        help="profile this run with yappi",
+    )
 
     args = vars(p.parse_args())
 
@@ -329,6 +336,10 @@ def main():  # NOSONAR
     if args["block_pbs"]:
         BlockPBS()
 
+    if args["profile"]:
+        print("Profiling script with yappi")
+        init_yappi()
+
     if args["mode"] == "new":
         DPMD_DATA = WORK_DIR / "deepmd_data"
         DPMD_DATA_ALL = DPMD_DATA / "all"
@@ -384,7 +395,7 @@ def main():  # NOSONAR
     elif args["parser"] == "vasp_files":
         multi_sys.collect_cf(paths, read_vasp_out)
     elif args["parser"] == "dpmd_raw":
-        multi_sys.collect_debug(paths, read_dpmd_raw)
+        multi_sys.collect_cf(paths, read_dpmd_raw)
     else:
         raise NotImplementedError(
             f"{Fore.RED}parser for {Fore.RESET}{args['parser']}{Fore.RED} "

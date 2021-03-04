@@ -16,13 +16,14 @@ from typing import (
 from warnings import warn
 
 import numpy as np
+from colorama import Fore
 from dpdata import LabeledSystem, MultiSystems
 from dpmd_tools.utils import split_into
 from loky import get_reusable_executor
 from tqdm import tqdm
 from typing_extensions import Literal
 
-from .flavours import ClusteredSystem, MaskedSystem, SelectedSystem, AllSelectedError
+from .flavours import AllSelectedError, ClusteredSystem, MaskedSystem, SelectedSystem
 
 MAX_FRAMES_PER_SET = 5000
 _SYS_TYPE = TypeVar("_SYS_TYPE", MaskedSystem, ClusteredSystem, SelectedSystem)
@@ -117,7 +118,11 @@ class MultiSystemsVar(MultiSystems, Generic[_SYS_TYPE]):
     def collect_debug(
         self, paths: List[Path], dir_process: Callable[[Path], List[_SYS_TYPE]]
     ):
-        """Single core serial data collector with no exception catching."""
+        """Single core serial data collector with no exception catching.
+        
+        Use only for debugging.
+        """
+        print(f"{Fore.RED} using debugging file reader")
 
         for path in paths:
             systems = dir_process(path)
