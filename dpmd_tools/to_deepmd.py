@@ -16,7 +16,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from colorama import Fore, init
 
-from dpmd_tools.data import LabeledSystemMask, LabeledSystemSelected, MultiSystemsVar
+from dpmd_tools.system import MaskedSystem, SelectedSystem, MultiSystemsVar
 from dpmd_tools.frame_filter import ApplyConstraint
 from dpmd_tools.readers import (
     read_dpmd_raw,
@@ -374,7 +374,7 @@ def main():  # NOSONAR
             UserWarning,
         )
 
-    multi_sys = MultiSystemsVar[LabeledSystemMask]()
+    multi_sys = MultiSystemsVar[MaskedSystem]()
 
     if args["parser"] == "xtalopt":
         multi_sys.collect_cf(paths, read_xtalopt_dir)
@@ -404,7 +404,7 @@ def main():  # NOSONAR
 
     # here we will store the filtered structures that we want to use for
     # training
-    chosen_sys = MultiSystemsVar[LabeledSystemSelected]()
+    chosen_sys = MultiSystemsVar[SelectedSystem]()
 
     lprint(
         f"{Fore.LIGHTBLUE_EX}size before{Fore.RESET} "
@@ -476,11 +476,11 @@ def main():  # NOSONAR
     DPMD_DATA_TRAIN.mkdir(exist_ok=True, parents=True)
 
     lprint(f"{Fore.GREEN}saving data for training ------------------------------------")
-    chosen_sys.to_deepmd_raw(DPMD_DATA_TRAIN)
+    #chosen_sys.to_deepmd_raw(DPMD_DATA_TRAIN)
     chosen_sys.to_deepmd_npy(DPMD_DATA_TRAIN, set_size="auto")
 
     lprint(f"{Fore.GREEN}saving all data for further use -----------------------------")
-    multi_sys.to_deepmd_raw(DPMD_DATA_ALL)
+    multi_sys.to_deepmd_raw(DPMD_DATA_ALL, True if args["mode"] == "append" else False)
 
     lprint(f"data output to {DPMD_DATA}")
     lprint.write()

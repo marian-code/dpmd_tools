@@ -21,7 +21,6 @@ from ase.ga.ofp_comparator import OFPComparator
 from joblib import Parallel, delayed
 from sklearn.cluster import MiniBatchKMeans
 from tqdm import tqdm
-from dpmd_tools.readers import 
 
 from dpmd_tools.readers import load_npy_data, load_raw_data
 
@@ -33,65 +32,122 @@ def input_parser():
     p = argparse.ArgumentParser(
         description="select data based on fingerprints, selection mode uses "
         "Mini Batch K-Means algorithm with online training",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    sp = p.add_subparsers(dest="action", help="Select running mode, either "
-                          "take fingerprints or filter dat absed on already "
-                          "computed fingerprints")
+    sp = p.add_subparsers(
+        dest="action",
+        help="Select running mode, either "
+        "take fingerprints or filter dat absed on already "
+        "computed fingerprints",
+    )
 
     prints = sp.add_parser("take-prints")
-    prints.add_argument("-bs", "--batch_size", default=1e6, type=int,
-                        help="Size of chunks that will be used to save "
-                        "fingerprint data, to avoid memory overflow")
-    prints.add_argument("-p", "--parallel", default=False,
-                        action="store_true", help="whether to run "
-                        "fingerprinting in parallel, usually there is speedup "
-                        "benefit up to an order of magnitude")
+    prints.add_argument(
+        "-bs",
+        "--batch_size",
+        default=1e6,
+        type=int,
+        help="Size of chunks that will be used to save "
+        "fingerprint data, to avoid memory overflow",
+    )
+    prints.add_argument(
+        "-p",
+        "--parallel",
+        default=False,
+        action="store_true",
+        help="whether to run fingerprinting in parallel, usually there is speedup "
+        "benefit up to an order of magnitude",
+    )
 
     select = sp.add_parser("select")
-    select.add_argument("-p", "--passes", default=100, type=int,
-                        help="number ov dataset passes of MiniBatch K-means "
-                        "online learning loop.")
-    select.add_argument("-bs", "--batch_size", default=int(1e6), type=int,
-                        help="Data will be iterativelly loaded from files "
-                        "specified in the fingerprinting phase, and from "
-                        "those random batches will be chosen of size "
-                        "specified by this argument")
-    select.add_argument("-nf", "--n-from-cluster", default=100, type=int,
-                        help="number of random samples to select from each "
-                        "cluster. Data will be devided to two folders: "
-                        "selected and the rest")
-    select.add_argument("-nc", "--n-clusters", default=100, type=int,
-                        help="target number of clusters for K-Means algorithm")
+    select.add_argument(
+        "-p",
+        "--passes",
+        default=100,
+        type=int,
+        help="number ov dataset passes of MiniBatch K-means online learning loop.",
+    )
+    select.add_argument(
+        "-bs",
+        "--batch_size",
+        default=int(1e6),
+        type=int,
+        help="Data will be iterativelly loaded from files "
+        "specified in the fingerprinting phase, and from "
+        "those random batches will be chosen of size "
+        "specified by this argument",
+    )
+    select.add_argument(
+        "-nf",
+        "--n-from-cluster",
+        default=100,
+        type=int,
+        help="number of random samples to select from each "
+        "cluster. Data will be devided to two folders: selected and the rest",
+    )
+    select.add_argument(
+        "-nc",
+        "--n-clusters",
+        default=100,
+        type=int,
+        help="target number of clusters for K-Means algorithm",
+    )
 
     both = sp.add_parser("both")
-    both.add_argument("-p", "--passes", default=100, type=int,
-                        help="number ov dataset passes of MiniBatch K-means "
-                        "online learning loop.")
-    both.add_argument("-bs", "--batch_size", default=int(1e6), type=int,
-                        help="Data will be iterativelly loaded from files "
-                        "specified in the fingerprinting phase, and from "
-                        "those random batches will be chosen of size "
-                        "specified by this argument")
-    both.add_argument("-nf", "--n-from-cluster", default=100, type=int,
-                        help="number of random samples to select from each "
-                        "cluster. Data will be devided to two folders: "
-                        "selected and the rest")
-    both.add_argument("-nc", "--n-clusters", default=100, type=int,
-                        help="target number of clusters for K-Means algorithm")
-    both.add_argument("-pa", "--parallel", default=False,
-                      action="store_true", help="whether to run "
-                      "fingerprinting in parallel, usually there is speedup "
-                      "benefit up to an order of magnitude")
+    both.add_argument(
+        "-p",
+        "--passes",
+        default=100,
+        type=int,
+        help="number ov dataset passes of MiniBatch K-means online learning loop.",
+    )
+    both.add_argument(
+        "-bs",
+        "--batch_size",
+        default=int(1e6),
+        type=int,
+        help="Data will be iterativelly loaded from files "
+        "specified in the fingerprinting phase, and from "
+        "those random batches will be chosen of size "
+        "specified by this argument",
+    )
+    both.add_argument(
+        "-nf",
+        "--n-from-cluster",
+        default=100,
+        type=int,
+        help="number of random samples to select from each "
+        "cluster. Data will be devided to two folders: selected and the rest",
+    )
+    both.add_argument(
+        "-nc",
+        "--n-clusters",
+        default=100,
+        type=int,
+        help="target number of clusters for K-Means algorithm",
+    )
+    both.add_argument(
+        "-pa",
+        "--parallel",
+        default=False,
+        action="store_true",
+        help="whether to run "
+        "fingerprinting in parallel, usually there is speedup "
+        "benefit up to an order of magnitude",
+    )
 
     return vars(p.parse_args())
 
 
 class FingerprintDataset:
-
-    def __init__(self, path: Path, comparator: OFPComparator,
-                 comparator_settings: dict, batch_size: Optional[int] = None,
-                 parallel: bool = False) -> None:
+    def __init__(
+        self,
+        path: Path,
+        comparator: OFPComparator,
+        comparator_settings: dict,
+        batch_size: Optional[int] = None,
+        parallel: bool = False,
+    ) -> None:
 
         sets = [f for f in path.glob("*") if (f / "box.npy").is_file()]
         if len(sets) == 0:
@@ -156,8 +212,8 @@ class FingerprintDataset:
     @staticmethod
     def _split(a: Sequence[Any], n: int) -> Iterator[List[Any]]:
 
-        for i in range(0, len(a), n):  
-            yield a[i:i + n] 
+        for i in range(0, len(a), n):
+            yield a[i: i + n]
 
     @staticmethod
     def _take_fingerprints(a: Atoms, comparator: OFPComparator) -> np.ndarray:
@@ -192,8 +248,9 @@ class KmeansRunner:
     https://scikit-learn.org/stable/auto_examples/cluster/plot_dict_face_patches.html
     """
 
-    def __init__(self, fp_files: List[Path], passes: int, batch_size: int,
-                 n_clusters: int) -> None:
+    def __init__(
+        self, fp_files: List[Path], passes: int, batch_size: int, n_clusters: int
+    ) -> None:
 
         rng = np.random.RandomState(0)
         self.kmeans = MiniBatchKMeans(
@@ -201,7 +258,7 @@ class KmeansRunner:
             random_state=rng,
             verbose=True,
             compute_labels=True,
-            init="k-means++"
+            init="k-means++",
         )
         self.fp_files = fp_files
         self.passes = passes
@@ -232,8 +289,8 @@ class KmeansRunner:
                 self.inertia.append(self.kmeans.inertia_ / self.batch_size)
                 job.set_description(
                     f"pass {i + 1}/{self.passes}, inertia: "
-                    f"{self.kmeans.inertia_ / self.batch_size:.5f}")
-
+                    f"{self.kmeans.inertia_ / self.batch_size:.5f}"
+                )
 
     def run_all(self):
 
@@ -261,22 +318,21 @@ class KmeansRunner:
         inertia = np.array(self.inertia)
 
         fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=n,
-            y=inertia,
-            mode="lines",
-            name="cluster abs inertia"
-        ))
-        fig.add_trace(go.Scatter(
-            x=n[:-1],
-            y=np.ediff1d(inertia),
-            mode="lines",
-            name="cluster abs inertia"
-        ))
+        fig.add_trace(
+            go.Scatter(x=n, y=inertia, mode="lines", name="cluster abs inertia")
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=n[:-1],
+                y=np.ediff1d(inertia),
+                mode="lines",
+                name="cluster abs inertia",
+            )
+        )
         fig.update_layout(
             title="Mini batch K-means convergence",
             xaxis_title="Iteration [N]",
-            yaxis_title="Clusters inertia"
+            yaxis_title="Clusters inertia",
         )
         fig.write_html("convergence.html", include_plotlyjs="cdn")
 
@@ -291,8 +347,7 @@ def get_en_vol(path: Path) -> Tuple[np.ndarray, np.ndarray]:
     return energies, volumes
 
 
-def plot_clusters(energies: np.ndarray, volumes: np.ndarray,
-                  labels: np.ndarray):
+def plot_clusters(energies: np.ndarray, volumes: np.ndarray, labels: np.ndarray):
 
     colors = list(mcd.CSS4_COLORS.values())
 
@@ -300,10 +355,15 @@ def plot_clusters(energies: np.ndarray, volumes: np.ndarray,
     for i in range(100):
         idx = np.argwhere(labels == i).flatten()
         plt.scatter(volumes[idx], energies[idx], c=colors[i], label=str(i))
-        fig.add_trace(go.Scattergl(x=volumes[idx], y=energies[idx],
-                mode='markers',
+        fig.add_trace(
+            go.Scattergl(
+                x=volumes[idx],
+                y=energies[idx],
+                mode="markers",
                 name=str(i),
-                marker_color=colors[i]))
+                marker_color=colors[i],
+            )
+        )
 
     plt.legend()
     plt.savefig("clusters.png")
@@ -325,7 +385,7 @@ def main():
         "pbc": True,
         "maxdims": None,
         "sigma": 0.02,  # 0.02
-        "nsigma": 4  # 4
+        "nsigma": 4,  # 4
     }
 
     comparator = OFPComparator(**comparator_settings)
@@ -338,7 +398,7 @@ def main():
             comparator,
             comparator_settings,
             batch_size=args["batch_size"],
-            parallel=args["parallel"]
+            parallel=args["parallel"],
         )
         fingerprints.run()
 
@@ -358,7 +418,7 @@ def main():
             fp_files,
             int(args["passes"]),
             int(args["batch_size"]),
-            int(args["n_clusters"])
+            int(args["n_clusters"]),
         )
         kmeans.run_iter()
         kmeans.plot_convergence()

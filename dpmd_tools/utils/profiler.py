@@ -2,7 +2,7 @@
 from contextlib import contextmanager
 from pathlib import Path
 
-__all__ = ["finish_yappi", "ContextProfiler", "init_yappi"]
+__all__ = ["ContextProfiler", "init_yappi"]
 
 
 def finish_yappi():

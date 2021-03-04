@@ -8,7 +8,7 @@ import numpy as np
 from colorama import Fore, init
 
 from dpmd_tools.compare_graph import WORK_DIR
-from dpmd_tools.data import LabeledSystem, LabeledSystemMask
+from dpmd_tools.system import LabeledSystem, MaskedSystem
 
 init(autoreset=True)
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"  # or any {'0', '1', '2'}
@@ -41,7 +41,7 @@ class ApplyConstraint:
 
     def __init__(
         self,
-        system: LabeledSystemMask,
+        system: MaskedSystem,
         use_prints: bool,
         lprint: Callable[[Any], NoReturn],
         append: bool = True,
@@ -57,9 +57,10 @@ class ApplyConstraint:
         lprint(
             f" - {len(system.get_subsystem_indices())} structures of "
             f"{system.get_nframes()} aleready selected in in previous "
-            f"{system.iteration} iterations")
+            f"{system.iteration} iterations"
+        )
 
-    def get_predictions(self, graphs: List[str]) -> List[LabeledSystemMask]:
+    def get_predictions(self, graphs: List[str]) -> List[MaskedSystem]:
 
         if not self._predictions:
             self.lprint(f" - computing model predictions")
@@ -181,7 +182,7 @@ class ApplyConstraint:
         self._record_select(s, "energy constraints")
 
     def every(self, *, n_th: int):
-        self._selection_start(f"take every {n_th} frame criterion")
+        self._selection_start(f"take every {n_th} frame")
 
         indices = np.arange(self.system.get_nframes())
 
@@ -194,12 +195,12 @@ class ApplyConstraint:
 
         s = sorted(s, key=lambda x: len(x), reverse=True)[0]
 
-        self._record_select(s, "take every n-th frame constraints")
+        self._record_select(s, "take every n-th frame")
 
     def n_from_cluster(self, *, n=int):
-        self._selection_start(f"select {n} random frames from each cluster criterion")
+        self._selection_start(f"select {n} random frames from each cluster")
 
-        if not self.system.has_clusters():
+        if not self.system.has_clusters:
             raise RuntimeError(
                 "cannot use this criterion, cluster labels are not computed"
             )
@@ -224,7 +225,7 @@ class ApplyConstraint:
 
         s = self._where((bracket[0] < volumes) & (volumes < bracket[1]))
 
-        self._record_select(s, "volume constraints")
+        self._record_select(s, "volume")
 
     @check_bracket
     def dev_e(
@@ -271,7 +272,7 @@ class ApplyConstraint:
 
         s = self._where((bracket[0] < e_std) & (e_std < bracket[1]))
 
-        self._record_select(s, "energy std constraints")
+        self._record_select(s, "energy std")
 
     @check_bracket
     def dev_f(
@@ -319,9 +320,9 @@ class ApplyConstraint:
 
         s = self._where((bracket[0] < f_std_max) & (f_std_max < bracket[1]))
 
-        self._record_select(s, "max forces std constraints")
+        self._record_select(s, "max forces std")
 
-    def apply(self) -> LabeledSystemMask:
+    def apply(self) -> MaskedSystem:
 
         self.lprint(f"{Fore.LIGHTBLUE_EX}applying filters from all conditions")
 
