@@ -8,6 +8,7 @@ from shutil import SameFileError, which
 from socket import gethostname
 from subprocess import CalledProcessError, run
 from typing import Any, Deque, List
+from warnings import warn
 
 from colorama import Fore
 from ssh_utilities import Connection
@@ -120,9 +121,9 @@ class BlockPBS:
         server = gethostname().lower()
 
         if server in ("kohn", "planck"):
-            ppn = 16
+            ppn = 6
         else:
-            ppn = 12
+            ppn = 6
 
         s = "#!/bin/bash\n"
         s += f"#PBS -l nodes={server.lower()}:ppn={ppn},walltime=24:00:00\n"
@@ -165,7 +166,7 @@ class BlockPBS:
                 [qdel, self.jid], capture_output=True, text=True, cwd=Path.cwd()
             )
             if result.stdout.strip() != "" or result.returncode != 0:
-                raise RuntimeError(f"could not delete PBS job {self.jid}")
+                warn(f"could not delete PBS job {self.jid}", UserWarning)
             else:
                 self.script.unlink()
                 self._deleted = True

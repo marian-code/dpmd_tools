@@ -18,6 +18,7 @@ import numpy as np
 import plotly.graph_objects as go
 from ase import Atoms
 from ase.ga.ofp_comparator import OFPComparator
+from colorama import Fore
 from joblib import Parallel, delayed
 from sklearn.cluster import MiniBatchKMeans
 from tqdm import tqdm
@@ -151,10 +152,10 @@ class FingerprintDataset:
 
         sets = [f for f in path.glob("*") if (f / "box.npy").is_file()]
         if len(sets) == 0:
-            print("loading from raw")
+            print(" - loading from raw")
             atoms = load_raw_data(path)
         else:
-            print("loading from npy")
+            print(" - loading from npy")
             atoms = load_npy_data(path)
 
         if batch_size and batch_size < len(atoms):
@@ -170,8 +171,9 @@ class FingerprintDataset:
 
     def run(self):
 
+        print(f"{Fore.GREEN}Will now take fingerprints for dataset")
         for i, atoms in enumerate(self.atom_chunks, 1):
-            print(f"processing chunk {i}/{len(self.atom_chunks)}")
+            print(f" - processing chunk {i}/{len(self.atom_chunks)}")
 
             job = tqdm(atoms, ncols=100, total=len(atoms))
 
@@ -201,7 +203,7 @@ class FingerprintDataset:
     def _dump_data(self, data: np.ndarray, chunk: int):
 
         filename = self.path / f"fingerprints_{chunk}.npy"
-        print(f"dumping {filename.name}")
+        print(f" - dumping {filename.name}")
         np.save(filename, data)
 
     def dump_settings(self, comparator_settings: dict):
@@ -213,7 +215,7 @@ class FingerprintDataset:
     def _split(a: Sequence[Any], n: int) -> Iterator[List[Any]]:
 
         for i in range(0, len(a), n):
-            yield a[i: i + n]
+            yield a[i : i + n]
 
     @staticmethod
     def _take_fingerprints(a: Atoms, comparator: OFPComparator) -> np.ndarray:
@@ -270,11 +272,15 @@ class KmeansRunner:
     def run_iter(self):
 
         for fp in self.fp_files:
-            print(f"training data from file {fp.name}")
+            print(
+                f"{Fore.GREEN}Training cluster representation from file: "
+                f"{Fore.RESET}{fp.name}"
+            )
             data = np.load(fp)
 
             job = tqdm(range(self.passes), ncols=130, total=self.passes)
-            for i in job:
+            old_inertia = 1e23
+            for _ in job:
 
                 idx = np.random.randint(data.shape[0], size=self.batch_size)
                 feed_data = data[idx, :]
@@ -288,9 +294,14 @@ class KmeansRunner:
                 self.kmeans.partial_fit(feed_data)
                 self.inertia.append(self.kmeans.inertia_ / self.batch_size)
                 job.set_description(
-                    f"pass {i + 1}/{self.passes}, inertia: "
-                    f"{self.kmeans.inertia_ / self.batch_size:.5f}"
+                    f"inertia: {self.kmeans.inertia_ / self.batch_size:.6f}"
                 )
+                if abs(old_inertia - self.kmeans.inertia_) <= 1e-6:
+                    print(
+                        " - job has converged early, clusters inertia in successive "
+                        "passes match with accuracy 1e-6"
+                    )
+                    break
 
     def run_all(self):
 
@@ -374,7 +385,10 @@ def plot_clusters(energies: np.ndarray, volumes: np.ndarray, labels: np.ndarray)
 def main():
 
     args = input_parser()
-    print(args)
+
+    print(f"{Fore.GREEN}Script was run with these arguments --------------------------")
+    for arg, value in args.items():
+        print(f" - {arg:20}: {value}")
 
     comparator_settings = {
         "n_top": None,
@@ -408,10 +422,9 @@ def main():
         fp_files = [f for f in WORK_DIR.glob("fingerprints_*.npy")]
         fp_files.sort(key=lambda x: int(x.stem.split("_")[1]))
 
-        # print out
-        print("fingerprint files:")
+        print(f"{Fore.GREEN}Found fingerprint files ----------------------------------")
         for fp in fp_files:
-            print(fp.name)
+            print(f" - {fp.name}")
 
         # run kmeans algo
         kmeans = KmeansRunner(

@@ -119,6 +119,18 @@ def input_parser():
     )
     p.add_argument(
         "-m",
+        "--std-method",
+        default=False,
+        action="store_true",
+        help="method to use in forces and energy error estimation. Default=False means "
+        "that root mean squared prediction error will be used, this will output high "
+        "error even if all models predictions aggre but have a constant shift from DFT "
+        "data. If true than insted standard deviation in set of predictions by "
+        "different models will be used, this will not account for any prediction "
+        "biases.",
+    )
+    p.add_argument(
+        "-m",
         "--mode",
         default="new",
         choices=("new", "append"),
@@ -183,6 +195,13 @@ def input_parser():
         help="automatically accept when prompted to save changes",
     )
     p.add_argument(
+        "--dont-save",
+        default=False,
+        action="store_true",
+        help="if this switch is enabled only run and dont save selection, usefull "
+        "for situations when one wants to precompute predictions",
+    )
+    p.add_argument(
         "-b",
         "--block-pbs",
         default=False,
@@ -200,9 +219,22 @@ def input_parser():
 
     args["graphs"] = get_graphs(args["graphs"])
 
+    if args["auto"] and args["dont_save"]:
+        raise ValueError("cannot pass both 'auto' and 'dont-save' arguments at once")
+
+    if args["parser"] == "lmp_traj_dev":
+        if not args["dev_energy"] and not args["dev_force"]:
+            raise ValueError(
+                "Must specify alt least one of the dev-energy/dev-force conditions"
+            )
+        if not args["per_atom"]:
+            raise ValueError("per atoms must be true in this mode")
+
     if args["max_select"] is not None:
         if not args["max_select"].replace("%", "").isdigit():
-            raise TypeError("--max-select argument was specified with wrong value type")
+            raise TypeError(
+                "--max-select argument was specified with wrong format, use number or %"
+            )
 
     if len(set(args["graphs"])) == 1:
         raise ValueError(
@@ -212,8 +244,9 @@ def input_parser():
 
     if (args["dev_force"] or args["dev_energy"]) and not args["graphs"]:
         raise RuntimeError(
-            "if --dev-force or --dev-energy is specified you must input "
-            "also graphs argument"
+            "if --dev-force or --dev-energy is specified you must input also --graphs "
+            "argument. If out input --graphs argument then 'get_graphs' function has "
+            "not found any graph files based on your input."
         )
 
     return args
@@ -438,9 +471,14 @@ def main():  # NOSONAR
                 graphs=args["graphs"],
                 bracket=args["dev_energy"],
                 per_atom=args["per_atom"],
+                std_method=args["std_method"],
             )
         if args["graphs"] and args["dev_force"]:
-            constraints.dev_f(graphs=args["graphs"], bracket=args["dev_force"])
+            constraints.dev_f(
+                graphs=args["graphs"],
+                bracket=args["dev_force"],
+                std_method=args["std_method"],
+            )
         if args["every"]:
             constraints.every(n_th=args["every"])
         if args["max_select"]:
@@ -471,6 +509,10 @@ def main():  # NOSONAR
     for s in del_systems:
         lprint(f"deleting {s}")
         chosen_sys.systems.pop(s, None)
+
+    if args["dont_save"]:
+        lprint(f"{Fore.YELLOW}You choose not to save changes, exiting ... ")
+        sys.exit()
 
     # if result is satisfactory continue, else abort
     if not args["auto"]:
