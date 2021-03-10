@@ -13,7 +13,7 @@ from colorama import Fore
 from ssh_utilities import Connection
 
 
-def get_graphs(input_graphs: List[str]) -> List[Path]:
+def get_graphs(input_graphs: List[str], remove_after: bool = False) -> List[Path]:
 
     graphs = []
     for graph_str in input_graphs:
@@ -44,6 +44,13 @@ def get_graphs(input_graphs: List[str]) -> List[Path]:
                 except SameFileError:
                     pass
                 graphs.append(local_graph)
+
+    if remove_after:
+        def _remove_graphs(graphs: List[Path]):
+            for g in graphs:
+                g.unlink()
+
+        atexit.register(_remove_graphs, graphs)
 
     return graphs
 

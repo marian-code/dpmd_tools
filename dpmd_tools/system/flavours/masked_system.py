@@ -1,14 +1,15 @@
 """Helper module with dpdata subclasses."""
 
 import os
-from copy import deepcopy
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, List, Optional, Union
+from shutil import copy2
+from typing import TYPE_CHECKING, List, Optional
 
 import numpy as np
-from dpdata import LabeledSystem
 from tqdm import tqdm
 from typing_extensions import TypedDict
+
+from .base import BaseSystem
 from .selected_system import SelectedSystem
 
 if TYPE_CHECKING:
@@ -36,7 +37,7 @@ class AllSelectedError(Exception):
     pass
 
 
-class MaskedSystem(LabeledSystem):
+class MaskedSystem(BaseSystem):
     """Masked subclass that remembers which frames were already used.
 
     Together with raw files it will export `used.raw` which will contain a
@@ -68,7 +69,8 @@ class MaskedSystem(LabeledSystem):
     """
 
     data: "_DATA"
-    has_clusters: bool = False
+    has_used: bool = True
+    _additional_arrays = ["used"]
 
     def __new__(
         cls,
@@ -82,80 +84,39 @@ class MaskedSystem(LabeledSystem):
         **kwargs
     ):
 
+        if cls.clusters_available(file_name):
+            # import here to prevent circular imports
+            from .clustered_system import ClusteredSystem
+            return ClusteredSystem(
+                file_name=file_name,
+                fmt=fmt,
+                type_map=type_map,
+                begin=begin,
+                step=step,
+                data=data,
+                **kwargs
+            )
+        else:
+            instance = super(MaskedSystem, cls).__new__(cls)
+            return instance
+
+    @staticmethod
+    def clusters_available(file_name: Optional[Path]):
         if file_name is not None:
             if (file_name / "clusters.raw").is_file():
-                # import here to prevent circular imports
-                from .clustered_system import ClusteredSystem
-                return ClusteredSystem(
-                    file_name=file_name,
-                    fmt=fmt,
-                    type_map=type_map,
-                    begin=begin,
-                    step=step,
-                    data=data,
-                    **kwargs
-                )
+                return True
 
-        instance = super(MaskedSystem, cls).__new__(cls)
-        return instance
-
-    def __init__(  # NOSONAR
-        self,
-        *,
-        file_name: Optional[Path] = None,
-        fmt: str = "auto",
-        type_map: List[str] = None,
-        begin: int = 0,
-        step: int = 1,
-        data: Optional["_DATA"] = None,
-        **kwargs,
-    ) -> None:
-        super(MaskedSystem, self).__init__(
-            file_name=str(file_name) if file_name else None,
-            fmt=fmt,
-            type_map=type_map,
-            begin=begin,
-            step=step,
-            data=data,
-            **kwargs,
-        )
-
-        # check format
-        # if reading from raw assume used.raw is already in-place
-        self._init_used(fmt, file_name)
-
-        # cond > 1 is for predict when we generate subsystems of length == 1
-        if (
-            np.count_nonzero(self.mask) >= len(self.data["cells"])
-            and len(self.mask) > 1
-        ):
-            raise AllSelectedError("All structures are alread selected")
+        return False
 
     # * custom methods *****************************************************************
-    def _init_used(self, fmt: str, file_name: Optional[Path]):
-        """Initialize `used` masking array.
+    def _post_init(self, **kwargs):
+        # check format
+        # if reading from raw assume used.raw is already in-place
+        if "raw" in kwargs["fmt"]:
 
-        Parameters
-        ----------
-        fmt : str
-            format of data to read
-        file_name : Path
-            file to read from
-
-        Raises
-        ------
-        ValueError
-            [description]
-        FileNotFoundError
-            [description]
-        ValueError
-            [description]
-        """
-        if "raw" in fmt:
-
-            if not file_name:
+            if not kwargs["file_name"]:
                 raise ValueError("must pass in filename")
-            used_file = file_name / "used.raw"
+            used_file: Path = kwargs["file_name"] / "used.raw"
 
             #  check if file exists
             if not used_file.is_file():
@@ -175,6 +136,27 @@ class MaskedSystem(LabeledSystem):
                     f"{self.data['cells'].shape[0]} rows, got "
                     f"{self.data['used'].shape[0]}"
                 )
+
+            # when user forces some iteration as default, slice the used array
+            # accordingly and save a backup file
+            if kwargs["force_iteration"] is not None:
+                fi = kwargs["force_iteration"]
+                if fi > 0:
+                    fi += 1  # need to shift because np slicing will take n-1
+
+                self.load_messages.append(
+                    f" - forced iteration to {fi} from {self.data['used'].shape[1]}"
+                )
+                backup_used = used_file.with_suffix(".raw.backup")
+                if backup_used.is_file():
+                    backup_used.unlink()
+                copy2(used_file, backup_used)
+                self.load_messages.append(
+                    f"saved backup file {backup_used}"
+                )
+                self.data["used"] = self.data["used"][:, fi]
+
+
         # else init from scratch but not if data with 'used' key are passed in
         else:
             try:
@@ -183,6 +165,15 @@ class MaskedSystem(LabeledSystem):
                 self.data["used"] = np.zeros(
                     (self.data["cells"].shape[0], 1), dtype=int
                 )
+
+        # cond > 1 is for predict when we generate subsystems of length == 1
+        # check for data presence avoids fail on copy and sybsystem creation
+        if (
+            np.count_nonzero(self.mask) >= len(self.data["cells"])
+            and len(self.mask) > 1
+            and not kwargs["data"]
+        ):
+            raise AllSelectedError("All structures are alread selected")
 
     @property
     def iteration(self) -> int:
@@ -302,7 +293,34 @@ class MaskedSystem(LabeledSystem):
         tmp_data["iteration"] = iteration_indices[frame_indices.argsort()]
 
         # initialize Selected system class with subsystem data and return
-        return SelectedSystem(data=tmp_data)
+        # TODO ugly hack
+        if self.has_dev_e and self.has_dev_f:
+            from .dev_system import DevEFSystem
+            return DevEFSystem(tmp_data, SelectedSystem)  # type: ignore
+        elif self.has_dev_e:
+            from .dev_system import DevESystem
+            return DevESystem(tmp_data, SelectedSystem)  # type: ignore
+        elif self.has_dev_f:
+            from .dev_system import DevFSystem
+            return DevFSystem(tmp_data, SelectedSystem)  # type: ignore
+        else:
+            return SelectedSystem(data=tmp_data)
+
+    def add_dev_e(self, data: np.ndarray) -> "MaskedSystem":
+        # TODO ugly hack
+        self.data["energies_std"] = data
+        self._additional_arrays.append("energies_std")
+        self.has_dev_e = True
+        from .dev_system import DevESystem
+        return DevESystem(self.data, type(self))  # type: ignore
+
+    def add_dev_f(self, data: np.ndarray) -> "MaskedSystem":
+        # TODO ugly hack
+        self.data["forces_std"] = data
+        self._additional_arrays.append("forces_std")
+        self.has_dev_f = True
+        from .dev_system import DevFSystem
+        return DevFSystem(self.data, type(self))  # type: ignore
 
     # * overriding methods *************************************************************
     def to_deepmd_raw(self, folder: Path, append: bool):
@@ -317,30 +335,8 @@ class MaskedSystem(LabeledSystem):
         """
         if not append:
             super(MaskedSystem, self).to_deepmd_raw(folder)
-
-        np.savetxt(folder / "used.raw", self.data["used"], fmt="%d")
-
-    def to_deepmd_npy(self, folder: Path, set_size: int = 5000, prec: Any = np.float32):
-        super(MaskedSystem, self).to_deepmd_npy(
-            str(folder), set_size=set_size, prec=prec
-        )
-
-    def copy(self):
-        tmp_sys = super(MaskedSystem, self).copy()
-        tmp_sys.data["used"] = deepcopy(self.data["used"])
-        return tmp_sys
-
-    def append(self, system: "MaskedSystem"):
-        super(MaskedSystem, self).append(system)
-        self.data["used"] = np.concatenate((self.data["used"], system["used"]), axis=0)
-
-    def sub_system(self, f_idx: Union[np.ndarray, int]) -> "MaskedSystem":
-        tmp_sys = super(MaskedSystem, self).sub_system(f_idx)
-        tmp_sys.data["used"] = self.data["used"][f_idx]
-        if isinstance(f_idx, int):
-            tmp_sys.data["used"] = np.atleast_2d(tmp_sys.data["used"])
-
-        return MaskedSystem(data=tmp_sys.data)
+        else:
+            np.savetxt(folder / "used.raw", self.data["used"], fmt="%d")
 
     def predict(self, dp: Path):
         """Predict energies and forces by deepmd-kit for yet unselected structures.
@@ -358,8 +354,8 @@ class MaskedSystem(LabeledSystem):
         os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
         import deepmd.DeepPot as DeepPot
 
-        deeppot = DeepPot(str(dp))
-        type_map = deeppot.get_type_map()
+        self.deeppot = DeepPot(str(dp))
+        type_map = self.deeppot.get_type_map()
         ori_sys = self.copy()
         ori_sys.sort_atom_names(type_map=type_map)
         atype = ori_sys["atom_types"]
@@ -392,7 +388,7 @@ class MaskedSystem(LabeledSystem):
                 data["forces"] = np.zeros((1, ss.get_natoms(), 3))
                 data["virials"] = np.zeros((1, 3, 3))
             else:
-                e, f, v = deeppot.eval(coord, cell, atype)
+                e, f, v = self.deeppot.eval(coord, cell, atype)
                 data["energies"] = e.reshape((1, 1))
                 data["forces"] = f.reshape((1, -1, 3))
                 data["virials"] = v.reshape((1, 3, 3))

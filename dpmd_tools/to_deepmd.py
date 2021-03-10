@@ -1,7 +1,7 @@
 """Read various data formats to deepmd.
 
 Can be easily extended by writing new parser functions like e.g.
-`read_vasp_out` and by altering get paths function.
+`read_vasp_file` and by altering get paths function.
 """
 
 import argparse
@@ -18,16 +18,14 @@ from colorama import Fore, init
 
 from dpmd_tools.system import MaskedSystem, SelectedSystem, MultiSystemsVar
 from dpmd_tools.frame_filter import ApplyConstraint
-from dpmd_tools.readers import (
-    read_dpmd_raw,
-    read_vasp_dir,
-    read_vasp_out,
-    read_xtalopt_dir,
-)
+import dpmd_tools.readers.to_dpdata as readers
 from dpmd_tools.utils import BlockPBS, Loglprint, get_graphs
 
 WORK_DIR = Path.cwd()
-PARSER_CHOICES = ("xtalopt", "vasp_dirs", "vasp_files", "dpmd_raw")
+PARSER_CHOICES = [r.replace("read_", "") for r in readers.__all__]
+COLLECTOR_CHOICES = [
+    v.replace("collect_", "") for v in vars(MultiSystemsVar) if "collect_" in v
+]
 
 init(autoreset=True)
 
@@ -182,20 +180,60 @@ def input_parser():
         help="automatically accept when prompted to save changes",
     )
     p.add_argument(
+        "--dont-save",
+        default=False,
+        action="store_true",
+        help="if this switch is enabled only run and dont save selection, usefull "
+        "for situations when one wants to precompute predictions",
+    )
+    p.add_argument(
         "-b",
         "--block-pbs",
         default=False,
         action="store_true",
         help="put an empty job in PBS queue to stop others from trying to access GPU",
     )
+    p.add_argument(
+        "-dc",
+        "--data-collector",
+        default="cf",
+        choices=COLLECTOR_CHOICES,
+        help="choose data collector callable. 'cf' is parallel based on "
+        "concurrent.futures and loky",
+    )
+    p.add_argument(
+        "-fi",
+        "--force_iteration",
+        default=None,
+        help="When selecting force to use supplied iteration as default, instead of "
+        "using the last one. This is usefull when you have some unsatisfactory "
+        "iterations and want to revert the selection to some previous one. E.g. when "
+        "you have 4 selection iterations the next will be 5-th and will build on data "
+        "selected in previous 4. But if '-fi 2' you will build on data selected only "
+        "in previous 2. You can also input negative number e.g. -2 which will have the "
+        "same effect in this case giving you the 2. generation as base"
+    )
 
     args = vars(p.parse_args())
 
-    args["graphs"] = get_graphs(args["graphs"])
+    args["graphs"] = get_graphs(args["graphs"], remove_after=True)
+
+    if args["auto"] and args["dont_save"]:
+        raise ValueError("cannot pass both 'auto' and 'dont-save' arguments at once")
+
+    if args["parser"] == "lmp_traj_dev":
+        if not args["dev_energy"] and not args["dev_force"]:
+            raise ValueError(
+                "Must specify alt least one of the dev-energy/dev-force conditions"
+            )
+        if not args["per_atom"]:
+            raise ValueError("per atoms must be true in this mode")
 
     if args["max_select"] is not None:
         if not args["max_select"].replace("%", "").isdigit():
-            raise TypeError("--max-select argument was specified with wrong value type")
+            raise TypeError(
+                "--max-select argument was specified with wrong format, use number or %"
+            )
 
     if len(set(args["graphs"])) == 1:
         raise ValueError(
@@ -234,8 +272,8 @@ def get_paths() -> List[Path]:
 
 def make_df(multi_sys: MultiSystemsVar) -> Tuple[pd.DataFrame, bool, bool]:
 
-    has_e_std = all(["energies_std" in s.data for s in multi_sys])
-    has_f_std = all(["forces_std_max" in s.data for s in multi_sys])
+    has_dev_e = all([s.has_dev_e for s in multi_sys])
+    has_dev_f = all([s.has_dev_f for s in multi_sys])
 
     dataframes = []
     for system in multi_sys:
@@ -247,31 +285,31 @@ def make_df(multi_sys: MultiSystemsVar) -> Tuple[pd.DataFrame, bool, bool]:
             }
         )
 
-        if has_e_std:
+        if has_dev_e:
             df["energies_std"] = system.data["energies_std"].flatten()
-        if has_f_std:
-            df["forces_std_max"] = system.data["forces_std_max"]
+        if has_dev_f:
+            df["forces_std"] = system.data["forces_std"]
         dataframes.append(df)
 
     data = pd.concat(dataframes)
 
-    return data, has_e_std, has_f_std
+    return data, has_dev_e, has_dev_f
 
 
 def plot(multi_sys: MultiSystemsVar, chosen_sys: MultiSystemsVar, *, histogram: bool):
 
-    data, has_e_std, has_f_std = make_df(multi_sys)
+    data, has_dev_e, has_dev_f = make_df(multi_sys)
     if histogram:
-        data_chosen, has_e_std, has_f_std = make_df(chosen_sys)
+        data_chosen, has_dev_e, has_dev_f = make_df(chosen_sys)
 
-    for what in ("energies_std", "forces_std_max"):
-        if what == "energies_std" and not has_e_std:
+    for what in ("energies_std", "forces_std"):
+        if what == "energies_std" and not has_dev_e:
             print(
                 f" - {Fore.YELLOW}skipping plot energies std, "
                 f"this was not selection criterion"
             )
             continue
-        elif what == "forces_std_max" and not has_f_std:
+        elif what == "forces_std" and not has_dev_f:
             print(
                 f" - {Fore.YELLOW}skipping plot forces std max, "
                 f"this was not selection criterion"
@@ -314,7 +352,9 @@ def plot(multi_sys: MultiSystemsVar, chosen_sys: MultiSystemsVar, *, histogram: 
                 title=f"E-V plot, zero {what} are for structures selected in previous iterations",
                 xaxis_title="V [A^3]",
                 yaxis_title="E [eV]",
-                coloraxis_colorbar=dict(title=what,),
+                coloraxis_colorbar=dict(
+                    title=what,
+                ),
             )
         fig.write_html(
             f"{what}{'_hist' if histogram else ''}_it{multi_sys.iteration}.html",
@@ -377,19 +417,16 @@ def main():  # NOSONAR
 
     multi_sys = MultiSystemsVar[MaskedSystem]()
 
-    if args["parser"] == "xtalopt":
-        multi_sys.collect_cf(paths, read_xtalopt_dir)
-    elif args["parser"] == "vasp_dirs":
-        multi_sys.collect_cf(paths, read_vasp_dir)
-    elif args["parser"] == "vasp_files":
-        multi_sys.collect_cf(paths, read_vasp_out)
-    elif args["parser"] == "dpmd_raw":
-        multi_sys.collect_debug(paths, read_dpmd_raw)
-    else:
+    collector = getattr(multi_sys, f"collect_{args['data_collector']}")
+    try:
+        reader = getattr(readers, f"read_{args['parser']}")
+    except AttributeError:
         raise NotImplementedError(
             f"{Fore.RED}parser for {Fore.RESET}{args['parser']}{Fore.RED} "
             f"is not implemented"
         )
+    else:
+        collector(paths, reader, **args)
 
     if multi_sys.get_nframes() == 0:
         lprint(f"{Fore.RED}aborting, no data was found")
@@ -433,7 +470,9 @@ def main():  # NOSONAR
         if args["every"]:
             constraints.every(n_th=args["every"])
         if args["max_select"]:
-            constraints.max_select(max_n=args["max_select"],)
+            constraints.max_select(
+                max_n=args["max_select"],
+            )
 
         chosen_sys.append(constraints.apply())
 
@@ -460,6 +499,10 @@ def main():  # NOSONAR
     for s in del_systems:
         lprint(f"deleting {s}")
         chosen_sys.systems.pop(s, None)
+
+    if args["dont_save"]:
+        lprint(f"{Fore.YELLOW}You choose not to save changes. ")
+        sys.exit()
 
     # if result is satisfactory continue, else abort
     if not args["auto"]:

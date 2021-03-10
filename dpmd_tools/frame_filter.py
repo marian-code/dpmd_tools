@@ -235,6 +235,7 @@ class ApplyConstraint:
         bracket: Tuple[float, float],
         std_method: bool = False,
         per_atom: bool = True,
+        from_md: bool = False
     ):
         """Select which labeled structures should be added to dataset.
 
@@ -248,27 +249,28 @@ class ApplyConstraint:
         """
         self._selection_start(f"energy std")
 
-        predictions = self.get_predictions(graphs)
+        if not from_md:
+            predictions = self.get_predictions(graphs)
 
-        # shape: (n_models, n_frames)
-        energies = np.column_stack([p.data["energies"] for p in predictions])
-        if per_atom:
-            energies /= self.system.get_natoms()
+            # shape: (n_models, n_frames)
+            energies = np.column_stack([p.data["energies"] for p in predictions])
+            if per_atom:
+                energies /= self.system.get_natoms()
 
-        if std_method:
-            e_std = np.std(energies, axis=1)
-        else:
-            reference = self.system.data["energies"] / self.system.get_natoms()
-            # make column vector of reference DFT data
-            reference = np.atleast_2d(reference).T
+            if std_method:
+                e_std = np.std(energies, axis=1)
+            else:
+                reference = self.system.data["energies"] / self.system.get_natoms()
+                # make column vector of reference DFT data
+                reference = np.atleast_2d(reference).T
 
-            e_std = np.sqrt(np.mean(np.power(abs(energies - reference), 2), axis=1))
+                e_std = np.sqrt(np.mean(np.power(abs(energies - reference), 2), axis=1))
 
-        # set elements that where already selectedin in previous iteration to 0
-        e_std[self.system.get_subsystem_indices()] = 0
+            # set elements that where already selectedin in previous iteration to 0
+            e_std[self.system.get_subsystem_indices()] = 0
 
-        # save for plotting
-        self.system.data["energies_std"] = e_std
+            # save for plotting
+            self.system = self.system.add_dev_e(e_std)
 
         s = self._where((bracket[0] < e_std) & (e_std < bracket[1]))
 
@@ -281,6 +283,7 @@ class ApplyConstraint:
         graphs: List[str],
         bracket: Tuple[float, float],
         std_method: bool = False,
+        from_md: bool = False
     ):
         """Select which labeled structures should be added to dataset.
 
@@ -294,29 +297,30 @@ class ApplyConstraint:
         """
         self._selection_start(f"max atom force std")
 
-        predictions = self.get_predictions(graphs)
+        if not from_md:
+            predictions = self.get_predictions(graphs)
 
-        # shape: (n_models, n_frames, n_atoms, 3)
-        forces = np.stack([p.data["forces"] for p in predictions])
+            # shape: (n_models, n_frames, n_atoms, 3)
+            forces = np.stack([p.data["forces"] for p in predictions])
 
-        # shape: (n_frames, n_atoms, 3)
-        if std_method:
-            f_std = np.std(forces, axis=0)
-        else:
-            reference = self.system.data["forces"]
-            f_std = np.sqrt(np.mean(np.power(abs(forces - reference), 2), axis=0))
+            # shape: (n_frames, n_atoms, 3)
+            if std_method:
+                f_std = np.std(forces, axis=0)
+            else:
+                reference = self.system.data["forces"]
+                f_std = np.sqrt(np.mean(np.power(abs(forces - reference), 2), axis=0))
 
-        # shape: (n_frames, n_atoms)
-        f_std_size = np.linalg.norm(f_std, axis=2)
+            # shape: (n_frames, n_atoms)
+            f_std_size = np.linalg.norm(f_std, axis=2)
 
-        # shape: (n_frames, )
-        f_std_max = np.max(f_std_size, axis=1)
+            # shape: (n_frames, )
+            f_std_max = np.max(f_std_size, axis=1)
 
-        # set elements that where already selectedin in previous iteration to 0
-        f_std_max[self.system.get_subsystem_indices()] = 0
+            # set elements that where already selectedin in previous iteration to 0
+            f_std_max[self.system.get_subsystem_indices()] = 0
 
-        # save for plotting
-        self.system.data["forces_std_max"] = f_std_max
+            # save for plotting
+            self.system = self.system.add_dev_f(f_std_max)
 
         s = self._where((bracket[0] < f_std_max) & (f_std_max < bracket[1]))
 
@@ -341,17 +345,5 @@ class ApplyConstraint:
 
         # create subsystem filtered by mask
         sub_system = self.system.get_subsystem(None)
-
-        # copy custom attributes
-        sub_indices = self.system.get_subsystem_indices()
-
-        for attr in ["energies_std", "forces_std_max"]:
-            try:
-                sub_system.data[attr] = self.system.data[attr][sub_indices]
-            except KeyError:
-                print(
-                    f"{Fore.YELLOW} - cannot copy key: {Fore.RESET}{attr}{Fore.YELLOW} "
-                    f"to subsystem, respective selection criterion did not run"
-                )
 
         return sub_system

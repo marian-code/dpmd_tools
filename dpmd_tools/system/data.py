@@ -1,14 +1,15 @@
 """Helper module with dpdata subclasses."""
 
 from concurrent.futures import as_completed
+from dpmd_tools.system.flavours.base import BaseSystem
 from pathlib import Path
 from typing import (
+    Any,
     Callable,
     Generic,
     ItemsView,
-    Iterator,
     KeysView,
-    List,
+    List, NoReturn, Optional,
     TypeVar,
     Union,
     ValuesView,
@@ -22,10 +23,10 @@ from loky import get_reusable_executor
 from tqdm import tqdm
 from typing_extensions import Literal
 
-from .flavours import ClusteredSystem, MaskedSystem, SelectedSystem, AllSelectedError
+from .flavours import AllSelectedError, ClusteredSystem, MaskedSystem, SelectedSystem
 
 MAX_FRAMES_PER_SET = 5000
-_SYS_TYPE = TypeVar("_SYS_TYPE", MaskedSystem, ClusteredSystem, SelectedSystem)
+_SYS_TYPE = TypeVar("_SYS_TYPE", BaseSystem, MaskedSystem, ClusteredSystem, SelectedSystem)
 
 
 class MultiSystemsVar(MultiSystems, Generic[_SYS_TYPE]):
@@ -71,8 +72,6 @@ class MultiSystemsVar(MultiSystems, Generic[_SYS_TYPE]):
         for ss, (system_name, system) in dump_job:
             system.to_deepmd_npy(folder / system_name, set_size=ss, prec=prec)
 
-    # TODO something fishy is going on here
-    # npy and raw files do not correspond
     def to_deepmd_raw(self, folder: Path, append: bool):
         for system_name, system in self.systems.items():
             system.to_deepmd_raw(folder / system_name, append)
@@ -102,30 +101,25 @@ class MultiSystemsVar(MultiSystems, Generic[_SYS_TYPE]):
 
         return max(it)
 
-    def predict(self, graphs: List[Path]) -> Iterator["MultiSystemsVar"]:
-
-        for g in graphs:
-            prediction = super().predict(str(g.resolve()))
-            multi_sys = MultiSystemsVar()
-
-            # copy data
-            for attr in vars(prediction):
-                setattr(multi_sys, attr, getattr(prediction, attr))
-
-            yield multi_sys
-
     def collect_debug(
-        self, paths: List[Path], dir_process: Callable[[Path], List[_SYS_TYPE]]
+        self,
+        paths: List[Path],
+        dir_process: Callable[[Path, Any], List[_SYS_TYPE]],
+        **kwargs,
     ):
         """Single core serial data collector with no exception catching."""
 
         for path in paths:
-            systems = dir_process(path)
+            systems = dir_process(path, **kwargs)
             for s in systems:
+                _print_messages(s.load_messages, print)
                 self.append(s)
 
     def collect_single(
-        self, paths: List[Path], dir_process: Callable[[Path], List[_SYS_TYPE]]
+        self,
+        paths: List[Path],
+        dir_process: Callable[[Path, Any], List[_SYS_TYPE]],
+        **kwargs,
     ):
         """Single core serial data collector."""
         futures = tqdm(paths, ncols=100, total=len(paths))
@@ -133,24 +127,28 @@ class MultiSystemsVar(MultiSystems, Generic[_SYS_TYPE]):
         for p in futures:
 
             try:
-                systems = dir_process(p)
+                systems = dir_process(p, **kwargs)
             except Exception as e:
                 futures.write(f"Error in {p.name}: {e}")
             else:
                 for s in systems:
+                    _print_messages(s.load_messages, futures.write)
                     try:
                         self.append(s)
                     except Exception as e:
                         futures.write(f"Error in {p.name}: {e}")
 
     def collect_cf(
-        self, paths: List[Path], dir_process: Callable[[Path], List[_SYS_TYPE]],
+        self,
+        paths: List[Path],
+        dir_process: Callable[[Path, Any], List[_SYS_TYPE]],
+        **kwargs,
     ):
         """Parallel async data collector."""
         print("All atom types will be changed to Ge!!!")
 
         with get_reusable_executor(max_workers=10) as pool:
-            future2data = {pool.submit(dir_process, p): p for p in paths}
+            future2data = {pool.submit(dir_process, p, **kwargs): p for p in paths}
 
             futures = tqdm(as_completed(future2data), ncols=100, total=len(paths))
             for future in futures:
@@ -167,11 +165,19 @@ class MultiSystemsVar(MultiSystems, Generic[_SYS_TYPE]):
                     futures.write(f"Error in {path}: {e}")
                 else:
                     for s in systems:
+                        _print_messages(s.load_messages, futures.write)
                         try:
                             s.data["atom_names"] = ["Ge"]
                             self.append(s)
                         except Exception as e:
                             futures.write(f"Error in {path}: {e}")
+
+
+def _print_messages(
+    messages: List[str], writer: Callable[[str, Optional[str], str, bool], NoReturn]
+):
+    for msg in messages:
+        writer(f" - {msg}")
 
 
 def partition_systems(multi_sys: MultiSystemsVar) -> List[int]:
