@@ -78,7 +78,7 @@ def main():
         target_dir.mkdir(exist_ok=True, parents=True)
 
         if args["local"]:
-            local_dir = Path(args["local"])
+            local_dir = Path(args["local"]).resolve()
             local_dir.mkdir(exist_ok=True, parents=True)
 
         # map sources and targets
@@ -96,8 +96,8 @@ def main():
 
         print("upload summary:")
         print("------------------------------------------------------------------")
-        for src, dst, _ in dirs_mapping:
-            print(f"{src.relative_to(Path.cwd())} -> {server}@{dst}")
+        for src, dst, loc in dirs_mapping:
+            print(f"{src.relative_to(Path.cwd())} -> {server}@{dst} -> {loc}")
 
         carry_on = input("continue? [ENTER]")
         if carry_on != "":
@@ -107,12 +107,12 @@ def main():
         print("------------------------------------------------------------------")
         for src, dst, local_dst in dirs_mapping:
             dst.mkdir(exist_ok=True, parents=True)
-            c.shutil.upload_tree(src, dst, remove_after=False)#, quiet="stats")
+            # c.shutil.upload_tree(src, dst, remove_after=False)#, quiet="stats")
             if args["local"]:
                 try:
-                    shutil.copytree(src, local_dst)
+                    shutil.copytree(src, local_dst, dirs_exist_ok=True)
                 except FileExistsError as e:
-                    print(e, src, local_dir)
+                    print(e)
 
         print("\ntraining dirs")
         print("------------------------------------------------------------------")

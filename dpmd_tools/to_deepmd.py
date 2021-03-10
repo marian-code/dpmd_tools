@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from colorama import Fore, init
+from dpmd_tools.utils import init_yappi
 
 from dpmd_tools.system import MaskedSystem, SelectedSystem, MultiSystemsVar
 from dpmd_tools.frame_filter import ApplyConstraint
@@ -116,6 +117,18 @@ def input_parser():
     )
     p.add_argument(
         "-m",
+        "--std-method",
+        default=False,
+        action="store_true",
+        help="method to use in forces and energy error estimation. Default=False means "
+        "that root mean squared prediction error will be used, this will output high "
+        "error even if all models predictions aggre but have a constant shift from DFT "
+        "data. If true than insted standard deviation in set of predictions by "
+        "different models will be used, this will not account for any prediction "
+        "biases.",
+    )
+    p.add_argument(
+        "-m",
         "--mode",
         default="new",
         choices=("new", "append"),
@@ -213,10 +226,27 @@ def input_parser():
         "in previous 2. You can also input negative number e.g. -2 which will have the "
         "same effect in this case giving you the 2. generation as base"
     )
+    p.add_argument(
+        "--profile",
+        default=False,
+        action="store_true",
+        help="profile this run with yappi",
+    )
 
     args = vars(p.parse_args())
 
     args["graphs"] = get_graphs(args["graphs"], remove_after=True)
+
+    if args["auto"] and args["dont_save"]:
+        raise ValueError("cannot pass both 'auto' and 'dont-save' arguments at once")
+
+    if args["parser"] == "lmp_traj_dev":
+        if not args["dev_energy"] and not args["dev_force"]:
+            raise ValueError(
+                "Must specify alt least one of the dev-energy/dev-force conditions"
+            )
+        if not args["per_atom"]:
+            raise ValueError("per atoms must be true in this mode")
 
     if args["auto"] and args["dont_save"]:
         raise ValueError("cannot pass both 'auto' and 'dont-save' arguments at once")
@@ -243,8 +273,9 @@ def input_parser():
 
     if (args["dev_force"] or args["dev_energy"]) and not args["graphs"]:
         raise RuntimeError(
-            "if --dev-force or --dev-energy is specified you must input "
-            "also graphs argument"
+            "if --dev-force or --dev-energy is specified you must input also --graphs "
+            "argument. If out input --graphs argument then 'get_graphs' function has "
+            "not found any graph files based on your input."
         )
 
     return args
@@ -369,6 +400,10 @@ def main():  # NOSONAR
     if args["block_pbs"]:
         BlockPBS()
 
+    if args["profile"]:
+        print("Profiling script with yappi")
+        init_yappi()
+
     if args["mode"] == "new":
         DPMD_DATA = WORK_DIR / "deepmd_data"
         DPMD_DATA_ALL = DPMD_DATA / "all"
@@ -464,9 +499,14 @@ def main():  # NOSONAR
                 graphs=args["graphs"],
                 bracket=args["dev_energy"],
                 per_atom=args["per_atom"],
+                std_method=args["std_method"],
             )
         if args["graphs"] and args["dev_force"]:
-            constraints.dev_f(graphs=args["graphs"], bracket=args["dev_force"])
+            constraints.dev_f(
+                graphs=args["graphs"],
+                bracket=args["dev_force"],
+                std_method=args["std_method"],
+            )
         if args["every"]:
             constraints.every(n_th=args["every"])
         if args["max_select"]:
@@ -501,7 +541,7 @@ def main():  # NOSONAR
         chosen_sys.systems.pop(s, None)
 
     if args["dont_save"]:
-        lprint(f"{Fore.YELLOW}You choose not to save changes. ")
+        lprint(f"{Fore.YELLOW}You choose not to save changes, exiting ... ")
         sys.exit()
 
     # if result is satisfactory continue, else abort

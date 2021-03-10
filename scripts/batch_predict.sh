@@ -33,7 +33,7 @@ for index in ${!paths[*]}; do
     # read and select data
     to_deepmd \
         --parser dpmd_raw \
-        --graphs ../../../selective_train/gen5/train3[3-6]/ge_all_s*.pb \
+        --graphs ../../../selective_train/gen6/train4[1-2]/ge_all_s*.pb \
         --volume 10 31 \
         --energy -5 -2 \
         --per-atom \
@@ -42,7 +42,7 @@ for index in ${!paths[*]}; do
         --mode append \
         --max-select 10% \
         --cache-predictions \
-        --auto \
-        --block-pbs
+        --block-pbs \
+        --dont-save
     cd ../..
-done	
+done

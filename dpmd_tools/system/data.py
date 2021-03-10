@@ -17,6 +17,7 @@ from typing import (
 from warnings import warn
 
 import numpy as np
+from colorama import Fore
 from dpdata import LabeledSystem, MultiSystems
 from dpmd_tools.utils import split_into
 from loky import get_reusable_executor
@@ -107,7 +108,11 @@ class MultiSystemsVar(MultiSystems, Generic[_SYS_TYPE]):
         dir_process: Callable[[Path, Any], List[_SYS_TYPE]],
         **kwargs,
     ):
-        """Single core serial data collector with no exception catching."""
+        """Single core serial data collector with no exception catching.
+        
+        Use only for debugging.
+        """
+        print(f"{Fore.RED} using debugging file reader")
 
         for path in paths:
             systems = dir_process(path, **kwargs)
