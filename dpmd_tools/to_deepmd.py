@@ -116,7 +116,6 @@ def input_parser():
         help="specify force deviations lower and upper bound for selection",
     )
     p.add_argument(
-        "-m",
         "--std-method",
         default=False,
         action="store_true",
