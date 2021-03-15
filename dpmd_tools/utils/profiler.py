@@ -1,8 +1,11 @@
 """Profiling module."""
 from contextlib import contextmanager
 from pathlib import Path
+import logging
 
 __all__ = ["ContextProfiler", "init_yappi"]
+
+log = logging.getLogger(__name__)
 
 
 def finish_yappi():
@@ -14,24 +17,24 @@ def finish_yappi():
     OUT_FILE.parent.mkdir(exist_ok=True, parents=True)
 
     # stop yappi profiler
-    print('[YAPPI STOP]')
+    log.info('[YAPPI STOP]')
     yappi.stop()
 
     # get yappi function stats
-    print('[YAPPI WRITE]')
+    log.info('[YAPPI WRITE]')
     stats = yappi.get_func_stats()
 
     # write different formats of functions statistics
     for stat_type in ['pstat', 'callgrind', 'ystat']:
         path = OUT_FILE.with_suffix(f".{stat_type}")
-        print(f'writing {path}')
+        log.info(f'writing {path}')
         stats.save(path, type=stat_type)
 
     # write summary function statistics
     path = OUT_FILE.with_suffix(".func_stats")
 
-    print('\n[YAPPI FUNC_STATS]')
-    print(f"writing {path}")
+    log.info('\n[YAPPI FUNC_STATS]')
+    log.info(f"writing {path}")
 
     with path.open("w") as fh:
         stats.print_all(out=fh)
@@ -39,13 +42,13 @@ def finish_yappi():
     # write thread based statistics
     path = OUT_FILE.with_suffix(".thread_stats")
 
-    print('\n[YAPPI THREAD_STATS]')
-    print(f"writing {path}")
+    log.info('\n[YAPPI THREAD_STATS]')
+    log.info(f"writing {path}")
 
     with path.open("w") as fh:
         yappi.get_thread_stats().print_all(out=fh)
 
-    print('[YAPPI OUT]')
+    log.info('[YAPPI OUT]')
 
 
 @contextmanager
@@ -53,7 +56,7 @@ def ContextProfiler():  # NOSONAR
     """Context profiler using yappi."""
     import yappi
 
-    print('[YAPPI START]')
+    log.info('[YAPPI START]')
     yappi.set_clock_type('wall')
     yappi.start()
 
@@ -71,7 +74,7 @@ def init_yappi(write_at_exit: bool = True):
     import yappi
     import atexit
 
-    print('[YAPPI START]')
+    log.info('[YAPPI START]')
     yappi.set_clock_type("cpu")  # 'wall')
     yappi.start()
 

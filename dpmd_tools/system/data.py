@@ -109,7 +109,7 @@ class MultiSystemsVar(MultiSystems, Generic[_SYS_TYPE]):
         **kwargs,
     ):
         """Single core serial data collector with no exception catching.
-        
+
         Use only for debugging.
         """
         print(f"{Fore.RED} using debugging file reader")
