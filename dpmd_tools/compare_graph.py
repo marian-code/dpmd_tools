@@ -37,14 +37,13 @@ from ssh_utilities import Connection
 from tqdm import tqdm
 from dpmd_tools.utils import get_graphs
 from colorama import Fore, init
+from ase import units
 
 sys.path.append("/home/rynik/OneDrive/dizertacka/code/rw")
-sys.path.append("/home/rynik/OneDrive/dizertacka/code/nnp")
 
 try:
-    from lammps import read_lammps_data, read_lammps_out
+    from lammps import read_lammps_out
     from plotly_theme_setter import *
-    from vasp import read_vasp_out
 except ImportError:
     print("cannot use compare graph script, custom modules are missing")
 
@@ -199,7 +198,7 @@ def collect_lmp(collect_dirs: List[Path], lammpses: Tuple[str, ...]):
             data = []
 
             for d in dirs:
-                N = len(read_lammps_data(d / "data.out"))
+                N = len(read(d / "data.out", format="lammps-data", style="atomic"))
                 en, vol, stress = read_lammps_out(d / "log.lammps")[:3]
                 stress /= 1000
                 data.append([vol / N, (en / N), stress])
@@ -212,6 +211,16 @@ def collect_lmp(collect_dirs: List[Path], lammpses: Tuple[str, ...]):
                 header="# Volume Energy stress",
                 fmt="%.6f",
             )
+
+
+def parse_vasp(path: Path) -> Tuple[float, float, float]:
+
+    atoms = read(path)
+    energy = atoms.get_potential_energy()
+    volume = atoms.get_volume()
+    hydrostatic_stress = -np.mean((atoms.get_stress()[:3] / units.GPa * 10))
+
+    return energy, volume, hydrostatic_stress
 
 
 def collect_vasp(collect_dirs: List[Path]):
@@ -232,7 +241,7 @@ def collect_vasp(collect_dirs: List[Path]):
 
         for d in dirs:
             N = len(read(d / "POSCAR"))
-            en, vol, stress = read_vasp_out(d / "OUTCAR")[:3]
+            en, vol, stress = parse_vasp(d / "OUTCAR")
             data.append([vol / N, en / N, stress])
 
         data = np.array(data)
