@@ -141,8 +141,6 @@ class MaskedSystem(BaseSystem):
             # accordingly and save a backup file
             if kwargs["force_iteration"] is not None:
                 fi = kwargs["force_iteration"]
-                if fi > 0:
-                    fi += 1  # need to shift because np slicing will take n-1
 
                 self.load_messages.append(
                     f" - forced iteration to {fi} from {self.data['used'].shape[1]}"
@@ -154,8 +152,13 @@ class MaskedSystem(BaseSystem):
                 self.load_messages.append(
                     f"saved backup file {backup_used}"
                 )
-                self.data["used"] = self.data["used"][:, fi]
-
+                # 0 means do not take into account any previous selections
+                if fi != 0:
+                    self.data["used"] = self.data["used"][:, :fi]
+                else:
+                    self.data["used"] = np.zeros(
+                        (self.data["cells"].shape[0], 1), dtype=int
+                    )
 
         # else init from scratch but not if data with 'used' key are passed in
         else:

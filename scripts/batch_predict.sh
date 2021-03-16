@@ -13,12 +13,13 @@ paths=(
     md_Ge136_12.5kbar
     md_Ge136_15kbar
     md_Ge136_20kbar
-    md_Ge136_30kbar
-    md_Ge136_50kbar
+    #md_Ge136_30kbar
+    #md_Ge136_50kbar
     md_Ge136_267
     md_Ge136_269
     md_Ge136_274
     mtd_Ge136
+    ea_Ge8_0GPa
 )
 
 for index in ${!paths[*]}; do 
@@ -33,16 +34,18 @@ for index in ${!paths[*]}; do
     # read and select data
     to_deepmd \
         --parser dpmd_raw \
-        --graphs ../../../selective_train/gen6/train4[1-2]/ge_all_s*.pb \
+        --graphs ../../../selective_train1/gen3/train3_*/ge_all*.pb \
         --volume 10 31 \
         --energy -5 -2 \
         --per-atom \
         --dev-force 0.1 1 \
+        --std-method \
         --fingerprint-use \
         --mode append \
-        --max-select 10% \
+        --max-select 5% \
         --cache-predictions \
         --block-pbs \
-        --dont-save
+        --auto-save \
+        --wait_for ../../../selective_train1/gen3/train3_4/ge_all_s3_4.pb
     cd ../..
 done

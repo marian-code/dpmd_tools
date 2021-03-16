@@ -7,7 +7,9 @@ Can be easily extended by writing new parser functions like e.g.
 import argparse
 import os
 import sys
+from collections import deque
 from pathlib import Path
+from time import sleep
 from typing import List, Tuple
 from warnings import warn
 
@@ -15,12 +17,11 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from colorama import Fore, init
-from dpmd_tools.utils import init_yappi
 
-from dpmd_tools.system import MaskedSystem, SelectedSystem, MultiSystemsVar
-from dpmd_tools.frame_filter import ApplyConstraint
 import dpmd_tools.readers.to_dpdata as readers
-from dpmd_tools.utils import BlockPBS, Loglprint, get_graphs
+from dpmd_tools.frame_filter import ApplyConstraint
+from dpmd_tools.system import MaskedSystem, MultiSystemsVar, SelectedSystem
+from dpmd_tools.utils import BlockPBS, Loglprint, get_graphs, init_yappi
 
 WORK_DIR = Path.cwd()
 PARSER_CHOICES = [r.replace("read_", "") for r in readers.__all__]
@@ -186,7 +187,7 @@ def input_parser():
         "you wish to run the scrip again",
     )
     p.add_argument(
-        "--auto",
+        "--auto-save",
         default=False,
         action="store_true",
         help="automatically accept when prompted to save changes",
@@ -215,7 +216,8 @@ def input_parser():
     )
     p.add_argument(
         "-fi",
-        "--force_iteration",
+        "--force-iteration",
+        type=int,
         default=None,
         help="When selecting force to use supplied iteration as default, instead of "
         "using the last one. This is usefull when you have some unsatisfactory "
@@ -231,24 +233,26 @@ def input_parser():
         action="store_true",
         help="profile this run with yappi",
     )
+    p.add_argument(
+        "-w",
+        "--wait_for",
+        type=str,
+        default=None,
+        help="wait for some file to be present typically frozen graph model and only "
+        "then start computation. Accepts path to file or dir"
+    )
 
     args = vars(p.parse_args())
 
+    if args["wait_for"]:
+        wait(Path(args["wait_for"]))
+
     args["graphs"] = get_graphs(args["graphs"], remove_after=True)
 
-    if args["auto"] and args["dont_save"]:
-        raise ValueError("cannot pass both 'auto' and 'dont-save' arguments at once")
-
-    if args["parser"] == "lmp_traj_dev":
-        if not args["dev_energy"] and not args["dev_force"]:
-            raise ValueError(
-                "Must specify alt least one of the dev-energy/dev-force conditions"
-            )
-        if not args["per_atom"]:
-            raise ValueError("per atoms must be true in this mode")
-
-    if args["auto"] and args["dont_save"]:
-        raise ValueError("cannot pass both 'auto' and 'dont-save' arguments at once")
+    if args["auto_save"] and args["dont_save"]:
+        raise ValueError(
+            "cannot pass both 'auto-save' and 'dont-save' arguments at once"
+        )
 
     if args["parser"] == "lmp_traj_dev":
         if not args["dev_energy"] and not args["dev_force"]:
@@ -259,7 +263,7 @@ def input_parser():
             raise ValueError("per atoms must be true in this mode")
 
     if args["max_select"] is not None:
-        if not args["max_select"].replace("%", "").isdigit():
+        if not args["max_select"].replace("%", "").isdigit():  # NOSONAR
             raise TypeError(
                 "--max-select argument was specified with wrong format, use number or %"
             )
@@ -278,6 +282,24 @@ def input_parser():
         )
 
     return args
+
+
+def wait(path: Path):
+
+    loader = deque(["-", "/", "|", "\\"])
+
+    while True:
+        if path.exists():
+            print(f"Path {path} is present starting computation")
+            return
+        else:
+            print(
+                f"{Fore.GREEN}Waiting for {Fore.RESET}{path}{Fore.GREEN} to become "
+                f"available {Fore.RESET}{loader[0]}",
+                end="\r"
+            )
+            loader.rotate(1)
+            sleep(0.15)
 
 
 def get_paths() -> List[Path]:
@@ -349,12 +371,12 @@ def plot(multi_sys: MultiSystemsVar, chosen_sys: MultiSystemsVar, *, histogram: 
             fig = go.Figure()
             fig.add_trace(
                 go.Histogram(
-                    x=data[what], histnorm="probability", name="all data in dataset"
+                    x=data[what][data[what] > 0], histnorm="probability", name="all data in dataset"
                 )
             )
             fig.add_trace(
                 go.Histogram(
-                    x=data_chosen[what],
+                    x=data_chosen[what][data_chosen[what] > 0],
                     histnorm="probability",
                     name="data chosen from dataset",
                 )
@@ -395,6 +417,8 @@ def plot(multi_sys: MultiSystemsVar, chosen_sys: MultiSystemsVar, *, histogram: 
 def main():  # NOSONAR
 
     args = input_parser()
+
+
 
     if args["block_pbs"]:
         BlockPBS()
@@ -552,7 +576,7 @@ def main():  # NOSONAR
         sys.exit()
 
     # if result is satisfactory continue, else abort
-    if not args["auto"]:
+    if not args["auto_save"]:
         if input("Continue and write data to disk? [ENTER]") != "":  # NOSONAR
             lprint("selection run abborted, changes to dataset were not written")
             sys.exit()
