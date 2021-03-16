@@ -439,8 +439,16 @@ def main():  # NOSONAR
         lprint(f" - {arg:20}: {value}")
 
     lprint(f"{Fore.GREEN}will read from these paths:")
-    for p in paths:
-        lprint(f" - {p}")
+    
+    if len(paths) > 20:
+        for p in paths[:10]:
+            lprint(f" - {p}")
+        lprint(" - ...")
+        for p in paths[-10:]:
+            lprint(f" - {p}")
+    else:
+        for p in paths:
+            lprint(f" - {p}")
 
     if not args["graphs"]:
         warn(

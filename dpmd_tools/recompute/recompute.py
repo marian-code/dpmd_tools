@@ -390,7 +390,7 @@ class Recompute:
                     #                  f"skipping...")
                     continue
                 else:
-                    rmtree(WORK_DIR / "failed" / str(i))
+                    rmtree(self.WD / "failed" / str(i))
 
             if i in running:
                 iter_atoms.write(f"{i} is currently running, skipping...")
@@ -819,6 +819,7 @@ class Recompute:
                     f"{str(timedelta(seconds=wait_time))}",
                     end="\r",
                 )
+                # TODO this runs too often
                 self._housekeeping_counter += 1
 
             self._update_runtimes()
@@ -863,6 +864,9 @@ class Recompute:
                 break
             else:
                 self._wait()
+
+        log.info("Job done, cleaning up.")
+        self.DUMP_FILE.unlink()
 
     # * utilities **********************************************************************
     def _job_satistics(self):
