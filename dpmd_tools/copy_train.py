@@ -46,18 +46,10 @@ def input_parser() -> Dict[str, Union[str, Path]]:
         help="choose directory from which will new train dir be created",
     )
     p.add_argument(
-        "-o",
-        "--output",
-        type=Path,
-        required=True,
-        help="choose destination directory",
+        "-o", "--output", type=Path, required=True, help="choose destination directory",
     )
     p.add_argument(
-        "-c",
-        "--control",
-        type=str,
-        required=True,
-        help="choose training control file",
+        "-c", "--control", type=str, required=True, help="choose training control file",
     ).completer = suggest_control
 
     argcomplete.autocomplete(p)
@@ -97,7 +89,13 @@ def prepare(*, input: Path, output: Path, control: str):
         except FileNotFoundError:
             pass
 
-    train_num = int(re.findall(r"\S*?(\d+)", output.name)[0])
+    match = re.findall(r"\S*?(\d+)(?:_(\d+))?", output.name)[0]
+    if match[1].isdigit():
+        train_num = int(match[1])
+        iter_num = int(match[0])
+    else:
+        train_num = int(match[0])
+        iter_num = None
 
     for f in output.glob("*"):
         text = f.read_text()
@@ -105,21 +103,27 @@ def prepare(*, input: Path, output: Path, control: str):
         #  control files
         if "seed" in text:
             # for yaml
-            text = re.sub(
-                r"seed\s*:\s*\d+", f"seed: {random.randint(1, 10**10)}", text
-            )
+            text = re.sub(r"seed\s*:\s*\d+", f"seed: {random.randint(1, 10**10)}", text)
             # for json
             text = re.sub(
-                r"\"seed\"\s*:\s*\d+", f'"seed": {random.randint(1, 10**10)}',
-                text
+                r"\"seed\"\s*:\s*\d+", f'"seed": {random.randint(1, 10**10)}', text
             )
         # for pbs files
         if "PBS" in text or "SBATCH" in text:
-            text = re.sub(r"train_\d+", f"train_{train_num}", text)
-            text = re.sub(
-                r"((?:-o|--output)\s*\S*?)\d+.pb", r"\g<1>{}.pb".format(train_num),
-                text
-            )
+            if iter_num:
+                text = re.sub(r"train_\d+_\d+", f"train_{iter_num}_{train_num}", text)
+                text = re.sub(
+                    r"((?:-o|--output)\s*\S*?)\d+_\d+.pb",
+                    r"\g<1>{}_{}.pb".format(iter_num, train_num),
+                    text,
+                )
+            else:
+                text = re.sub(r"train_\d+", f"train_{train_num}", text)
+                text = re.sub(
+                    r"((?:-o|--output)\s*\S*?)\d+.pb",
+                    r"\g<1>{}.pb".format(train_num),
+                    text,
+                )
 
         f.write_text(text)
 

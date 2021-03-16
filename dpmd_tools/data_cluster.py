@@ -18,13 +18,14 @@ import numpy as np
 import plotly.graph_objects as go
 from ase import Atoms
 from ase.ga.ofp_comparator import OFPComparator
-from colorama import Fore
+from colorama import Fore, init
 from joblib import Parallel, delayed
 from sklearn.cluster import MiniBatchKMeans
 from tqdm import tqdm
 
-from dpmd_tools.readers import load_npy_data, load_raw_data
+from dpmd_tools.readers.to_ase import load_npy_data, load_raw_data
 
+init(autoreset=True)
 WORK_DIR = Path.cwd()
 
 
