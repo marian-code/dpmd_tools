@@ -4,7 +4,6 @@ Can be easily extended by writing new parser functions like e.g.
 `read_vasp_file` and by altering get paths function.
 """
 
-import argparse
 import os
 import sys
 from collections import deque
@@ -13,15 +12,15 @@ from time import sleep
 from typing import List, Tuple
 from warnings import warn
 
+import dpmd_tools.readers.to_dpdata as readers
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from colorama import Fore, init
-
-import dpmd_tools.readers.to_dpdata as readers
-from dpmd_tools.frame_filter import ApplyConstraint
 from dpmd_tools.system import MaskedSystem, MultiSystemsVar, SelectedSystem
 from dpmd_tools.utils import BlockPBS, Loglprint, get_graphs, init_yappi
+
+from .frame_filter import ApplyConstraint
 
 WORK_DIR = Path.cwd()
 PARSER_CHOICES = [r.replace("read_", "") for r in readers.__all__]
@@ -32,220 +31,7 @@ COLLECTOR_CHOICES = [
 init(autoreset=True)
 
 
-def input_parser():
-    p = argparse.ArgumentParser(
-        description="Load various data formats to deepmd. Loaded data will be output "
-        "to deepmd_data/all - (every read structure) and deepmd_data/for_train - (only "
-        "selected structures) dirs",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-
-    p.add_argument(
-        "-p",
-        "--parser",
-        default=None,
-        required=True,
-        type=str,
-        choices=PARSER_CHOICES,
-        help="input parser you wish to use",
-    )
-    p.add_argument(
-        "-g",
-        "--graphs",
-        default=[],
-        type=str,
-        nargs="*",
-        help="input list of graphs you wish to use for checking if "
-        "datapoint is covered by current model. If present must "
-        "have at least two distinct graphs. You can use glob patterns "
-        "relative to current path e.g. '../ge_all_s1[3-6].pb'. Files can "
-        "also be located on remote e.g. "
-        "'kohn@'/path/to/file/ge_all_s1[3-6].pb'",
-    )
-    p.add_argument(
-        "-e", "--every", default=None, type=int, help="take every n-th frame"
-    )
-    p.add_argument(
-        "-v",
-        "--volume",
-        default=None,
-        type=float,
-        nargs=2,
-        help="constrain structures volume. Input as 10.0 31. In [A^3]",
-    )
-    p.add_argument(
-        "-n",
-        "--energy",
-        default=None,
-        type=float,
-        nargs=2,
-        help="constrain structures energy. Input as -5 -2. In [eV]",
-    )
-    p.add_argument(
-        "-a",
-        "--per-atom",
-        default=False,
-        action="store_true",
-        help="set if energy, energy-dev and volume constraints are "
-        "computed per atom or for the whole structure",
-    )
-    p.add_argument(
-        "-gp",
-        "--get-paths",
-        default=None,
-        type=str,
-        help="if not "
-        "specified default function will be used. Otherwise you can input "
-        "python code as string that outputs list of 'Path' objects. The "
-        "Path object is already imported for you. Example: "
-        "-g '[Path.cwd() / \"OUTCAR\"]'",
-    )
-    p.add_argument(
-        "-de",
-        "--dev-energy",
-        default=False,
-        type=float,
-        nargs=2,
-        help="specify energy deviations lower and upper bound for selection",
-    )
-    p.add_argument(
-        "-df",
-        "--dev-force",
-        default=False,
-        type=float,
-        nargs=2,
-        help="specify force deviations lower and upper bound for selection",
-    )
-    p.add_argument(
-        "--std-method",
-        default=False,
-        action="store_true",
-        help="method to use in forces and energy error estimation. Default=False means "
-        "that root mean squared prediction error will be used, this will output high "
-        "error even if all models predictions aggre but have a constant shift from DFT "
-        "data. If true than insted standard deviation in set of predictions by "
-        "different models will be used, this will not account for any prediction "
-        "biases.",
-    )
-    p.add_argument(
-        "-m",
-        "--mode",
-        default="new",
-        choices=("new", "append"),
-        type=str,
-        help="choose data export mode in append "
-        "structures will be appended to ones already chosen for "
-        "training in previous iteration. In append mode do not specify the "
-        "-gp/--get-paths arguments and start the script in deepmd_data dir, "
-        "in this mode only dpmd_raw data format is supported",
-    )
-    p.add_argument(
-        "-f",
-        "--fingerprint-use",
-        default=False,
-        action="store_true",
-        help="if max-select argument is used that this option specifies "
-        "that subsample will be selected based on fingerprints",
-    )
-    p.add_argument(
-        "-ms",
-        "--max-select",
-        default=None,
-        type=str,
-        help="set max number "
-        "of structures that will be selected. If above conditions produce "
-        "more, subsample will be selected randomly, or based on "
-        "fingerprints if available. Can be also input as a percent of all "
-        "dataset e.g. 10%% from 5000 = 500 frams selected. The percent "
-        "option computes the potrion from whole dataset length not only "
-        "from unselected structures",
-    )
-    p.add_argument(
-        "-mf",
-        "--min-frames",
-        default=30,
-        type=int,
-        help="specify minimal "
-        "munber of frames a system must have. Smaller systems are deleted. "
-        "This is due to difficulties in partitioning and inefficiency of "
-        "DeepMD when working with such small data",
-    )
-    p.add_argument(
-        "-nf",
-        "--n-from-cluster",
-        default=100,
-        type=int,
-        help="number of random samples to select from each cluster",
-    )
-    p.add_argument(
-        "-cp",
-        "--cache-predictions",
-        default=False,
-        action="store_true",
-        help="if true than prediction for current graphs are stored in "
-        "running directory so they do not have to be recomputed when "
-        "you wish to run the scrip again",
-    )
-    p.add_argument(
-        "--auto-save",
-        default=False,
-        action="store_true",
-        help="automatically accept when prompted to save changes",
-    )
-    p.add_argument(
-        "--dont-save",
-        default=False,
-        action="store_true",
-        help="if this switch is enabled only run and dont save selection, usefull "
-        "for situations when one wants to precompute predictions",
-    )
-    p.add_argument(
-        "-b",
-        "--block-pbs",
-        default=False,
-        action="store_true",
-        help="put an empty job in PBS queue to stop others from trying to access GPU",
-    )
-    p.add_argument(
-        "-dc",
-        "--data-collector",
-        default="cf",
-        choices=COLLECTOR_CHOICES,
-        help="choose data collector callable. 'cf' is parallel based on "
-        "concurrent.futures and loky",
-    )
-    p.add_argument(
-        "-fi",
-        "--force-iteration",
-        type=int,
-        default=None,
-        help="When selecting force to use supplied iteration as default, instead of "
-        "using the last one. This is usefull when you have some unsatisfactory "
-        "iterations and want to revert the selection to some previous one. E.g. when "
-        "you have 4 selection iterations the next will be 5-th and will build on data "
-        "selected in previous 4. But if '-fi 2' you will build on data selected only "
-        "in previous 2. You can also input negative number e.g. -2 which will have the "
-        "same effect in this case giving you the 2. generation as base"
-    )
-    p.add_argument(
-        "--profile",
-        default=False,
-        action="store_true",
-        help="profile this run with yappi",
-    )
-    p.add_argument(
-        "-w",
-        "--wait_for",
-        type=str,
-        default=None,
-        help="wait for some file to be present typically frozen graph model and only "
-        "then start computation. Accepts path to file or dir"
-    )
-
-    args = vars(p.parse_args())
-
-    if args["wait_for"]:
-        wait(Path(args["wait_for"]))
+def postporcess_args(args: dict):
 
     args["graphs"] = get_graphs(args["graphs"], remove_after=True)
 
@@ -414,11 +200,12 @@ def plot(multi_sys: MultiSystemsVar, chosen_sys: MultiSystemsVar, *, histogram: 
         )
 
 
-def main():  # NOSONAR
+def to_deepmd(args: dict):  # NOSONAR
 
-    args = input_parser()
+    if args["wait_for"]:
+        wait(Path(args["wait_for"]))
 
-
+    args = postporcess_args(args)
 
     if args["block_pbs"]:
         BlockPBS()
@@ -463,7 +250,7 @@ def main():  # NOSONAR
         lprint(f" - {arg:20}: {value}")
 
     lprint(f"{Fore.GREEN}will read from these paths:")
-    
+
     if len(paths) > 20:
         for p in paths[:10]:
             lprint(f" - {p}")
@@ -596,7 +383,3 @@ def main():  # NOSONAR
 
     lprint(f"data output to {DPMD_DATA}")
     lprint.write()
-
-
-if __name__ == "__main__":
-    main()

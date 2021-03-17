@@ -30,6 +30,11 @@ Otherwise some scripts will not work.
 pip install git+https://github.com/ftl-fmfi/dpmd_tools.git -e
 ```
 
+If you want to read data from LAMMPS MD trajectories
+```
+git+https://github.com/ftl-fmfi/py-extract-frames@master#egg=py-extract-frames
+```
+
 # Example
 
 100 clusters found in ge136 MetaD trajectory by `data_cluster.py`. For 300K

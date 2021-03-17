@@ -6,7 +6,6 @@ All is done automatically through ssh, just need to supply structures as list
 of ase.Atoms objects.
 """
 
-import argparse
 import itertools
 import logging
 import re
@@ -37,7 +36,7 @@ from ase.io import write
 from dpmd_tools.dispatchers import Dispatcher
 from dpmd_tools.recompute.json_serializer import Job, deserialize, serialize
 from dpmd_tools.utils import init_yappi
-from ssh_utilities import Connection, SSHConnection, remote
+from ssh_utilities import Connection, SSHConnection
 from tqdm import tqdm
 
 if TYPE_CHECKING:
@@ -69,63 +68,7 @@ JOB_ID = re.compile(r"(?:\"|\')(\S+)(?:\"|\')")
 log = logging.getLogger(__name__)
 
 
-def input_parser():
-    p = argparse.ArgumentParser(
-        description="script to recompute arbitrarry atoms set",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-
-    p.add_argument("-s", "--start", help="start of the interval", type=int, default=0)
-    p.add_argument(
-        "-e", "--end", help="end of the interval (None = end)", type=int, default=None
-    )
-    p.add_argument(
-        "-r",
-        "--remote",
-        help="server to run on",
-        nargs="+",
-        required=True,
-        choices=("aurel", "kohn", "schrodinger", "fock", "hartree", "landau"),
-    )
-    p.add_argument(
-        "-S", "--SCAN", help="whether to use SCAN functional", type=bool, default=False
-    )
-    p.add_argument(
-        "-f",
-        "--failed-recompute",
-        help="re-run failed jobs",
-        action="store_true",
-        default=False,
-    )
-    p.add_argument(
-        "-t",
-        "--threaded",
-        action="store_true",
-        default=False,
-        help="run using multithreading. This is only usefull when you have thousands "
-        "of very short jobs. Console output order will get messed up",
-    )
-    p.add_argument(
-        "-u",
-        "--user",
-        nargs="+",
-        type=str,
-        required=True,
-        help="input either one user name which will be used for all servers or one "
-        "for each server in corresponding order",
-    )
-    p.add_argument(
-        "-m",
-        "--max-jobs",
-        nargs="+",
-        type=int,
-        required=True,
-        help="set maximum number of jobs in queue for each server. Can be input as a "
-        "list with value for each server in corresponding order or as one number that "
-        "will be same for all",
-    )
-
-    args = vars(p.parse_args())
+def postprocess_args(args: dict) -> dict:
 
     if len(args["user"]) == 1:
         args["user"] = args["user"] * len(args["remote"])
@@ -980,13 +923,14 @@ def prepare_data() -> List[Atoms]:
     return system.to_ase_structure()
 
 
-def main():
+def recompute(args):
+    args = postprocess_args(args)
+
     logging.basicConfig(
         level=logging.INFO,
         format="[%(asctime)s] %(levelname)-7s: %(message)s",
     )
     logging.getLogger("paramiko").setLevel(logging.WARNING)
-    args = input_parser()
 
     log.info(f"Running on:     {args['remote']}")
     log.info(f"Start:          {args['start']}")

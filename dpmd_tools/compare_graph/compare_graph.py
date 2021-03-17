@@ -53,71 +53,6 @@ COLORS = ("black", "blue", "purple", "green", "red", "cyan", "goldenrod")
 WORK_DIR = Path.cwd()
 
 
-def input_parser() -> dict:
-
-    p = argparse.ArgumentParser(
-        description="run E-V plots check",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-    p.add_argument(
-        "-n",
-        "--nnp",
-        help="input dir with nnp potential, if "
-        "none is input then potential in ./nnp_model will be used",
-        default=None,
-    )
-    p.add_argument(
-        "-g",
-        "--graph",
-        default=None,
-        nargs="+",
-        help="use deepMD graph(s). Can also input graphs on remote "
-        "(server@/path/to/file). Wildcard '*' is also accepted.",
-    )
-    p.add_argument(
-        "-r",
-        "--recompute",
-        default=False,
-        action="store_true",
-        help="if false only collect previous results and don't " "run lammps",
-    )
-    p.add_argument(
-        "-e",
-        "--equation",
-        default="birchmurnaghan",
-        type=str,
-        choices=("birchmurnaghan", "p3"),
-        help="choose equation to " "fit datapoints",
-    )
-    p.add_argument(
-        "-t",
-        "--train-dir",
-        default=None,
-        type=str,
-        nargs="*",
-        help="input directories with data subdirs so data coverage " "can be computed",
-    )
-    p.add_argument(
-        "-m",
-        "--mtds",
-        default=None,
-        type=str,
-        nargs="*",
-        help="input paths to en_vol.npz files from MTD runs, can "
-        "be local(e.g. ../run/en_vol.npz) or remote"
-        "(e.g. host@/.../en_vol.npz",
-    )
-    p.add_argument(
-        "-a",
-        "--abinit-dir",
-        default=None,
-        type=str,
-        help="path to " "directory with abiniitio calculations",
-    )
-
-    return vars(p.parse_args())
-
-
 def mod_lmp_in(graph: Path, lmp_in: str = "in.lammps"):
 
     print(f"using graph: {graph}")
@@ -488,8 +423,7 @@ def run(args, graph: Optional[Path]):
     fig.write_html(f"E-V({graph.stem}).html", include_plotlyjs="cdn")
 
 
-def main():
-    args = input_parser()
+def compare_ev(args: dict):
 
     if args["graph"]:
         graphs = get_graphs(args["graph"])
@@ -499,7 +433,3 @@ def main():
             run(args, graph)
     else:
         run(args, None)
-
-
-if __name__ == "__main__":
-    main()

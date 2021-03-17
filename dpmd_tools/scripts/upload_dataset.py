@@ -1,7 +1,6 @@
 from pathlib import Path
-from typing import List, Dict, Optional, Tuple
+from typing import List, Optional, Tuple
 from ssh_utilities import Connection
-import argparse
 import shutil
 
 #logging.basicConfig(level=logging.DEBUG)
@@ -10,54 +9,7 @@ from ssh_utilities.remote.path import SSHPath
 WORK_DIR = Path.cwd()
 
 
-def input_parser() -> Dict[str, str]:
-
-    p = argparse.ArgumentParser(
-        description="collect dataset from subdirs and upload to server",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-
-    p.add_argument(
-        "-s",
-        "--server",
-        required=True,
-        type=str,
-        choices=Connection.get_available_hosts(),
-        help="select target server to upload to",
-    )
-    p.add_argument(
-        "-t",
-        "--target",
-        type=str,
-        default=None,
-        help="select target directory to upload to, if not specified, script will "
-        "mirror local directory",
-    )
-
-    p.add_argument(
-        "-l",
-        "--local",
-        type=str,
-        default=None,
-        help="select LOCAL target directory to mirror data uploaded to remote"
-    )
-    p.add_argument(
-        "-d",
-        "--dirs",
-        required=True,
-        type=str,
-        nargs="+",
-        help="select data directories. It is assumed that these were prepared by "
-        "to_deepmd script and the toplevel directory contains deepmd_data/for_train "
-        "dir structure. Accepts also wildcards",
-    )
-
-    return vars(p.parse_args())
-
-
-def main():
-
-    args = input_parser()
+def upload(args: dict):
 
     # expand wildcards
     dirs = []
@@ -127,8 +79,3 @@ def main():
 
         for d in data_dirs:
             print(f"- {d}")
-
-
-
-if __name__ == "__main__":
-    main()
