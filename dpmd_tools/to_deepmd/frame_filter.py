@@ -7,13 +7,15 @@ from typing import Any, Callable, List, NoReturn, Tuple
 import numpy as np
 from colorama import Fore, init
 
-from dpmd_tools.compare_graph import WORK_DIR
+from pathlib import Path
 from dpmd_tools.system import MaskedSystem
 from dpdata import LabeledSystem
 
 init(autoreset=True)
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"  # or any {'0', '1', '2'}
 os.environ["KMP_WARNINGS"] = "FALSE"
+
+WORK_DIR = Path.cwd()
 
 
 def check_bracket(function: Callable) -> Callable:

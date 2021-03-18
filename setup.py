@@ -10,8 +10,12 @@ PKG_ROOT = Path(__file__).parent
 
 # Read package constants
 README = (PKG_ROOT / "README.md").read_text()
-VERSION = ((PKG_ROOT / "dpmd_tools" / "version.py")
-           .read_text().split(" = ")[1].replace("\"", ""))
+VERSION = (
+    (PKG_ROOT / "dpmd_tools" / "version.py")
+    .read_text()
+    .split(" = ")[1]
+    .replace('"', "")
+)
 REQUIREMENTS = (PKG_ROOT / "requirements.txt").read_text().splitlines()
 
 setup(
@@ -46,10 +50,5 @@ setup(
     include_package_data=True,
     install_requires=REQUIREMENTS,
     extras_require={"test": ["unittest"] + REQUIREMENTS},
-    entry_points={"console_scripts": [
-        "to_deepmd = dpmd_tools.to_deepmd:main",
-        "cluster_deepmd = dpmd_tools.data_cluster:main",
-        "ev_graph = dpmd_tools.compare_graph:main",
-        "upload_dataset = dpmd_tools.upload_dataset:main"
-    ]},
+    entry_points={"console_scripts": ["dpmd-tools = dpmd_tools.main:main"]},
 )

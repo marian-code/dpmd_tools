@@ -115,6 +115,7 @@ class MultiSystemsVar(MultiSystems, Generic[_SYS_TYPE]):
         print(f"{Fore.RED} using debugging file reader")
 
         for path in paths:
+            print(f"loading {path}")
             systems = dir_process(path, **kwargs)
             for s in systems:
                 _print_messages(s.load_messages, print)
