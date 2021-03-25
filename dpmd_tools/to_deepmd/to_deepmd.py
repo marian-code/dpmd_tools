@@ -77,6 +77,7 @@ def wait(path: Path):
     while True:
         if path.exists():
             print(f"Path {path} is present starting computation")
+            sleep(5)
             return
         else:
             print(
@@ -194,8 +195,17 @@ def plot(multi_sys: MultiSystemsVar, chosen_sys: MultiSystemsVar, *, histogram: 
                     title=what,
                 ),
             )
+
+        name = Path(f"{what}{'_hist' if histogram else ''}_it{multi_sys.iteration}.html")
+        index = 1
+        while True:
+            if name.is_file():
+                name = name.with_suffix(f".{index}.html")
+                index += 1
+            else:
+                break
         fig.write_html(
-            f"{what}{'_hist' if histogram else ''}_it{multi_sys.iteration}.html",
+            str(name),
             include_plotlyjs="cdn",
         )
 

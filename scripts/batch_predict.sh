@@ -32,9 +32,9 @@ for index in ${!paths[*]}; do
     echo +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     echo dir: `pwd`
     # read and select data
-    to_deepmd \
+    dpmd-tools to_deepmd \
         --parser dpmd_raw \
-        --graphs ../../../selective_train1/gen4/train4_*/ge_all*.pb \
+        --graphs ../../../selective_train1/gen5/train*/ge_all*.pb \
         --volume 10 31 \
         --energy -5 -2 \
         --per-atom \
@@ -45,7 +45,7 @@ for index in ${!paths[*]}; do
         --max-select 5% \
         --cache-predictions \
         --block-pbs \
-        --auto-save \
-        --wait_for ../../../selective_train1/gen4/train4_4/ge_all_s4_4.pb
+        --dont-save \
+        --wait_for ../../../selective_train1/gen5/train5_4/ge_all_s5_4.pb
     cd ../..
 done
