@@ -315,7 +315,7 @@ def plot_predicted(
 def get_coverage(data_dir: Path, box: str = "box.raw", En: str = "energy.raw"):
 
     dirs = [
-        d for d in data_dir.rglob("*/") if (d / box).is_file() and (d / En).is_file()
+        d for d in data_dir.rglob("*") if (d / box).is_file() and (d / En).is_file()
     ]
 
     iter_dirs: Iterator[Path] = tqdm(dirs, ncols=100, total=len(list(dirs)))
