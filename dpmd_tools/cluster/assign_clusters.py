@@ -145,7 +145,7 @@ def plot_clusters(energies: np.ndarray, volumes: np.ndarray, labels: np.ndarray)
     colors = list(mcd.CSS4_COLORS.values())
 
     fig = go.Figure()
-    for i in range(100):
+    for i in range(labels.max() + 1):
         idx = np.argwhere(labels == i).flatten()
         plt.scatter(volumes[idx], energies[idx], c=colors[i], label=str(i))
         fig.add_trace(

@@ -1,4 +1,5 @@
 import argparse
+from pathlib import Path
 
 from ssh_utilities import Connection
 
@@ -180,17 +181,10 @@ def main():
         "you wish to run the scrip again",
     )
     parser_to_deepmd.add_argument(
-        "--auto-save",
-        default=False,
-        action="store_true",
+        "--save",
+        default="input",
+        choices=("no", "input", "yes"),
         help="automatically accept when prompted to save changes",
-    )
-    parser_to_deepmd.add_argument(
-        "--dont-save",
-        default=False,
-        action="store_true",
-        help="if this switch is enabled only run and dont save selection, usefull "
-        "for situations when one wants to precompute predictions",
     )
     parser_to_deepmd.add_argument(
         "-b",
@@ -305,7 +299,7 @@ def main():
     )
     parser_prints.add_argument(
         "-bs",
-        "--batch_size",
+        "--batch-size",
         default=1e6,
         type=int,
         help="Size of chunks that will be used to save "
@@ -319,6 +313,14 @@ def main():
         help="whether to run fingerprinting in parallel, usually there is speedup "
         "benefit up to an order of magnitude",
     )
+    parser_prints.add_argument(
+        "-s",
+        "--settings-file",
+        required=True,
+        type=Path,
+        help="input file with setting for ase OFP comparator. "
+        "https://gitlab.com/askhl/ase/-/blob/master/ase/ga/ofp_comparator.py"
+    )
 
     # * assign clusters to structures **************************************************
     parser_select = sp.add_parser(
@@ -329,7 +331,7 @@ def main():
     parser_select.add_argument(
         "-p",
         "--passes",
-        default=100,
+        default=5000,
         type=int,
         help="number ov dataset passes of MiniBatch K-means online learning loop.",
     )
@@ -342,14 +344,6 @@ def main():
         "specified in the fingerprinting phase, and from "
         "those random batches will be chosen of size "
         "specified by this argument",
-    )
-    parser_select.add_argument(
-        "-nf",
-        "--n-from-cluster",
-        default=100,
-        type=int,
-        help="number of random samples to select from each "
-        "cluster. Data will be devided to two folders: selected and the rest",
     )
     parser_select.add_argument(
         "-nc",
@@ -400,45 +394,40 @@ def main():
     )
 
     # * recompute **********************************************************************
-    recompute_parser = sp.add_parser(
-        "recompute",
-        help="script to recompute arbitrarry atoms set",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    remote_parser = argparse.ArgumentParser(
+        add_help=False, formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
 
-    recompute_parser.add_argument(
+    remote_parser.add_argument(
         "-s", "--start", help="start of the interval", type=int, default=0
     )
-    recompute_parser.add_argument(
+    remote_parser.add_argument(
         "-e", "--end", help="end of the interval (None = end)", type=int, default=None
     )
-    recompute_parser.add_argument(
+    remote_parser.add_argument(
         "-r",
         "--remote",
         help="server to run on",
         nargs="+",
         required=True,
-        choices=("aurel", "kohn", "schrodinger", "fock", "hartree", "landau"),
+        choices=("aurel", "kohn", "schrodinger", "fock", "hartree", "landau", "planck"),
     )
-    recompute_parser.add_argument(
-        "-S", "--SCAN", help="whether to use SCAN functional", type=bool, default=False
-    )
-    recompute_parser.add_argument(
+    remote_parser.add_argument(
         "-f",
         "--failed-recompute",
         help="re-run failed jobs",
         action="store_true",
         default=False,
     )
-    recompute_parser.add_argument(
-        "-t",
+    remote_parser.add_argument(
+        "-th",
         "--threaded",
         action="store_true",
         default=False,
         help="run using multithreading. This is only usefull when you have thousands "
         "of very short jobs. Console output order will get messed up",
     )
-    recompute_parser.add_argument(
+    remote_parser.add_argument(
         "-u",
         "--user",
         nargs="+",
@@ -447,7 +436,7 @@ def main():
         help="input either one user name which will be used for all servers or one "
         "for each server in corresponding order",
     )
-    recompute_parser.add_argument(
+    remote_parser.add_argument(
         "-m",
         "--max-jobs",
         nargs="+",
@@ -456,6 +445,31 @@ def main():
         help="set maximum number of jobs in queue for each server. Can be input as a "
         "list with value for each server in corresponding order or as one number that "
         "will be same for all",
+    )
+
+    recompute_parser = sp.add_parser(
+        "recompute",
+        parents=[remote_parser],
+        help="script to recompute arbitrarry atoms set",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    recompute_parser.add_argument(
+        "-S", "--SCAN", help="whether to use SCAN functional", type=bool, default=False
+    )
+
+    rings_parser = sp.add_parser(
+        "rings",
+        parents=[remote_parser],
+        help="script to recompute arbitrarry atoms set",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    rings_parser.add_argument(
+        "-t",
+        "--template",
+        default=Path.cwd() / "data",
+        type=Path,
+        required=True,
+        help="set directory with rings options and input template files"
     )
 
     args = p.parse_args()
@@ -472,6 +486,8 @@ def main():
     elif args.command == "upload":
         upload(dict_args)
     elif args.command == "recompute":
+        recompute(dict_args)
+    elif args.command == "rings":
         recompute(dict_args)
     elif args.command == None:
         p.print_help()

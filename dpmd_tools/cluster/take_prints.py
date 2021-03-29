@@ -11,13 +11,13 @@ from pathlib import Path
 from typing import Any, Iterator, List, Optional, Sequence
 
 import numpy as np
+import yaml
 from ase import Atoms
 from ase.ga.ofp_comparator import OFPComparator
 from colorama import Fore, init
+from dpmd_tools.readers.to_ase import load_npy_data, load_raw_data
 from joblib import Parallel, delayed
 from tqdm import tqdm
-
-from dpmd_tools.readers.to_ase import load_npy_data, load_raw_data
 
 init(autoreset=True)
 WORK_DIR = Path.cwd()
@@ -91,8 +91,8 @@ class FingerprintDataset:
 
     def dump_settings(self, comparator_settings: dict):
 
-        with (self.path / "fingerprint_settings.json").open("w") as f:
-            json.dump(comparator_settings, f, allow_nan=True, indent=4)
+        with (self.path / "fingerprint_settings.yaml").open("w") as f:
+            yaml.safe_dump(comparator_settings, f, default_flow_style=False, indent=4)
 
     @staticmethod
     def _split(a: Sequence[Any], n: int) -> Iterator[List[Any]]:
@@ -120,17 +120,8 @@ def take_prints(args: dict):
     for arg, value in args.items():
         print(f" - {arg:20}: {value}")
 
-    comparator_settings = {
-        "n_top": None,
-        "dE": 1,
-        "cos_dist_max": 5e-3,
-        "rcut": 10,  # 10
-        "binwidth": 0.08,  # 0.08
-        "pbc": True,
-        "maxdims": None,
-        "sigma": 0.02,  # 0.02
-        "nsigma": 4,  # 4
-    }
+    with open(args["settings_file"], "r") as f:
+        comparator_settings = yaml.safe_load(f)
 
     comparator = OFPComparator(**comparator_settings)
 
