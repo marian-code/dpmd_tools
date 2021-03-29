@@ -1,12 +1,18 @@
 from typing import Dict, TYPE_CHECKING, Callable
 import logging
+
 from .ibm import batch_script_ibm
 from .pbs import batch_script_pbs
 
+try:
+    from typing import Literal
+except ImportError:
+    from typing_extensions import Literal
+
 if TYPE_CHECKING:
 
-    DISP = Callable[[str, int, str, bool, bool, int], str]
-    DECORATED = Callable[[int, str, bool, bool, int], str]
+    DISP = Callable[[str, int, str, str, bool, int], str]
+    DECORATED = Callable[[int, str, str, bool, int], str]
     DECORATOR = Callable[[DISP], DISP]
 
 log = logging.getLogger(__name__)
@@ -39,12 +45,12 @@ class Decorated:
         self,
         n_nodes: int,
         ident: str,
-        scan: bool,
+        run_this: Literal["vasp", "vasp-scan", "rings"],
         priority: bool = True,
         hour_length: int = 12,
     ) -> str:
         job = self._decorated(
-            self._server, n_nodes, ident, scan, priority, hour_length
+            self._server, n_nodes, ident, run_this, priority, hour_length
         )
 
         job += "\ntouch done"

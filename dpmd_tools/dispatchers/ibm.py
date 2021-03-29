@@ -7,7 +7,7 @@ def batch_script_ibm(
     server: str,
     n_nodes: int,
     ident: str,
-    scan: bool,
+    run_this: str,
     priority: bool = True,
     hour_length: int = 12,
 ) -> str:
@@ -40,9 +40,14 @@ def batch_script_ibm(
     s += "# @ task_affinity = core(1)\n"
     s += "# @ queue\n\n"
 
-    if scan:
+    if run_this == "vasp-scan":
         s += "mpiexec /gpfs/home/dominika/vasp.5.3.2.complex.27.10.14\n"
-    else:
+    elif run_this == "vasp":
         s += "mpiexec /gpfs/home/kohulak/Software/vasp.5.4.4-testing/bin/vasp_std\n"
+    elif run_this == "rings":
+        s += f"RINGS=/gpfs/home/rynik/Software/rings/bin/rings\n"
+        # need to input twice y when auto cutoff determination
+        s += f"mpiexec printf 'y\ny\n' | $RINGS input\n"
+
 
     return s
