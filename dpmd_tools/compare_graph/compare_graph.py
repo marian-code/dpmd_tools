@@ -315,7 +315,7 @@ def plot_predicted(
 def get_coverage(data_dir: Path, box: str = "box.raw", En: str = "energy.raw"):
 
     dirs = [
-        d for d in data_dir.rglob("*/") if (d / box).is_file() and (d / En).is_file()
+        d for d in data_dir.rglob("*") if (d / box).is_file() and (d / En).is_file()
     ]
 
     iter_dirs: Iterator[Path] = tqdm(dirs, ncols=100, total=len(list(dirs)))
@@ -324,6 +324,7 @@ def get_coverage(data_dir: Path, box: str = "box.raw", En: str = "energy.raw"):
     for d in iter_dirs:
         iter_dirs.set_description(f"get coverage: {d.name}")
         n_atoms = len((d / "type.raw").read_text().splitlines())
+        sets = sorted(d.glob("set.*"), key=lambda x: x.split(".")[1])
         energies = np.loadtxt(d / "energy.raw") / n_atoms
         cells = np.loadtxt(d / "box.raw").reshape((-1, 3, 3))
         volumes = np.array([np.abs(np.linalg.det(c)) for c in cells]) / n_atoms

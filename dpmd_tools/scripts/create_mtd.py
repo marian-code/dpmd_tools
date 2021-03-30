@@ -105,7 +105,8 @@ def create_mtd(
         "COLVAR",
         "HILLS",
         "bck.*",
-        "REVIVE.lammps.*",
+        "*.devi",
+        "REVIVE.lammps*",
     ]
     if graphs:
         ignore.append("*.pb")
@@ -140,7 +141,6 @@ def create_mtd(
 
     # copy in-structure to target dir if it was input,
     # else check if in-structure is present
-    print(transform)
     if instruc:
         atoms = read(instruc)
     elif (output / "data.instruc").is_file():
@@ -180,22 +180,22 @@ def create_mtd(
         # alter lammps input
         if "pair_style" in text:
             print("altering lammps input")
-            # ste pressure variable in GPa
-            if press:
+            # set pressure variable in GPa
+            if press is not None:
                 text = re.sub(
-                    r"(variable\s+set_pressure\s+equal\s+)\d+",
+                    r"(variable\s+set_pressure\s+equal\s+)\d+\.?\d+?",
                     r"\g<1>{}".format(press),
                     text,
                 )
             # set tepmerature in K
-            if temperature:
+            if temperature is not None:
                 text = re.sub(
                     r"(variable\s+temperature_k\s+equal\s+)\d+",
                     r"\g<1>{}".format(temperature),
                     text,
                 )
             # set graphs
-            if graphs:
+            if graphs is not None:
                 text = re.sub(
                     r"(pair_style\s+deepmd).*?(out_file\s+model.devi)",
                     r"\g<1> {} \g<2>".format(" ".join(links)),
@@ -206,7 +206,7 @@ def create_mtd(
         if "PBS" in text or "SBATCH" in text:
             print("altering PBS script")
 
-            if walltime:
+            if walltime is not None:
                 text = re.sub(r"walltime=\d+", f"walltime={walltime:d}", text)
 
             # find training generation number and NN train order number
@@ -224,7 +224,7 @@ def create_mtd(
             # get train numbers
             numbers = sorted([int(g[1]) for g in gen_from_links])
 
-            if job_name:
+            if job_name is not None:
                 text = re.sub(
                     r"(#PBS\s+-N\s+).*?-\d+_\[\d+-\d+]",
                     r"\g<1>{}-{}_[{}-{}]".format(
@@ -251,7 +251,7 @@ def create_mtd(
                 r"(COEFFICIENTS=)0\.\d+", r"\g<1>{:.6f}".format(1 / len(atoms)), text
             )
             # alter gaussian deposition stride
-            if gauss_dep_stride:
+            if gauss_dep_stride is not None:
                 text = re.sub(r"(PACE=)\d+", r"\g<1>{}".format(gauss_dep_stride), text)
 
         f.write_text(text)
