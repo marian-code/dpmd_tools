@@ -355,13 +355,12 @@ def main():
     # * upload dataset *****************************************************************
     parser_upload = sp.add_parser(
         "upload",
-        help="upload dataset to remote and local dir",
+        help="upload dataset to remote server dir and/or local dir",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser_upload.add_argument(
         "-s",
         "--server",
-        required=True,
         type=str,
         choices=Connection.get_available_hosts(),
         help="select target server to upload to",
