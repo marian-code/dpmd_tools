@@ -7,3 +7,4 @@ dist/
 dpmd_tools.egg-info/
 docs/build/
 docs/source/_*
+examples/data/deepmd_data/*

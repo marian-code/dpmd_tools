@@ -35,11 +35,6 @@ def postporcess_args(args: dict):
 
     args["graphs"] = get_graphs(args["graphs"], remove_after=True)
 
-    if args["auto_save"] and args["dont_save"]:
-        raise ValueError(
-            "cannot pass both 'auto-save' and 'dont-save' arguments at once"
-        )
-
     if args["parser"] == "lmp_traj_dev":
         if not args["dev_energy"] and not args["dev_force"]:
             raise ValueError(
@@ -368,12 +363,12 @@ def to_deepmd(args: dict):  # NOSONAR
         lprint(f"deleting {s}")
         chosen_sys.systems.pop(s, None)
 
-    if args["dont_save"]:
+    if args["save"] == "no":
         lprint(f"{Fore.YELLOW}You choose not to save changes, exiting ... ")
         sys.exit()
 
     # if result is satisfactory continue, else abort
-    if not args["auto_save"]:
+    if args["save"] == "input":
         if input("Continue and write data to disk? [ENTER]") != "":  # NOSONAR
             lprint("selection run abborted, changes to dataset were not written")
             sys.exit()

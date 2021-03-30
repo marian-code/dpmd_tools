@@ -1,0 +1,9 @@
+binwidth: 0.08
+cos_dist_max: 0.005
+dE: 1
+maxdims: null
+n_top: null
+nsigma: 4
+pbc: true
+rcut: 10
+sigma: 0.02
