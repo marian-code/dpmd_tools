@@ -160,6 +160,9 @@ class Recompute(RemoteBatchRun):
 
         return job_name, job_script
 
+    def set_job_attr(self, job: "Job"):
+        job.SCAN = self.SCAN
+
     def _get_incar(self, server: str, atoms: "Atoms", calc_dir: Path):
 
         args = {"nsim": 4, "npar": 4, "kpar": 2 if len(atoms) > 10 else 1}

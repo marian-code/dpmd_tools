@@ -9,7 +9,7 @@ from dpmd_tools.compare_graph import compare_ev
 from dpmd_tools.system import MultiSystemsVar
 from dpmd_tools.to_deepmd import to_deepmd
 from dpmd_tools.scripts import upload
-from dpmd_tools.recompute import recompute
+from dpmd_tools.recompute import recompute, rings
 
 PARSER_CHOICES = [r.replace("read_", "") for r in readers.__all__]
 COLLECTOR_CHOICES = [
@@ -319,7 +319,7 @@ def main():
         required=True,
         type=Path,
         help="input file with setting for ase OFP comparator. "
-        "https://gitlab.com/askhl/ase/-/blob/master/ase/ga/ofp_comparator.py"
+        "https://gitlab.com/askhl/ase/-/blob/master/ase/ga/ofp_comparator.py",
     )
 
     # * assign clusters to structures **************************************************
@@ -392,7 +392,7 @@ def main():
         "dir structure. Accepts also wildcards",
     )
 
-    # * recompute **********************************************************************
+    # * remote parser base**************************************************************
     remote_parser = argparse.ArgumentParser(
         add_help=False, formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
@@ -409,7 +409,16 @@ def main():
         help="server to run on",
         nargs="+",
         required=True,
-        choices=("aurel", "kohn", "schrodinger", "fock", "hartree", "landau", "planck"),
+        choices=(
+            "aurel",
+            "kohn",
+            "schrodinger",
+            "fock",
+            "hartree",
+            "landau",
+            "planck",
+            "local",
+        ),
     )
     remote_parser.add_argument(
         "-f",
@@ -446,20 +455,22 @@ def main():
         "will be same for all",
     )
 
+    # * recompute VASP *****************************************************************
     recompute_parser = sp.add_parser(
         "recompute",
         parents=[remote_parser],
-        help="script to recompute arbitrarry atoms set",
+        help="script to recompute arbitrarry structures set with VASP",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     recompute_parser.add_argument(
         "-S", "--SCAN", help="whether to use SCAN functional", type=bool, default=False
     )
 
+    # * analyse rings ******************************************************************
     rings_parser = sp.add_parser(
         "rings",
         parents=[remote_parser],
-        help="script to recompute arbitrarry atoms set",
+        help="script to analyse arbitrarry structures set with R.I.N.G.S",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     rings_parser.add_argument(
@@ -468,7 +479,7 @@ def main():
         default=Path.cwd() / "data",
         type=Path,
         required=True,
-        help="set directory with rings options and input template files"
+        help="set directory with rings options and input template files",
     )
 
     args = p.parse_args()
@@ -487,7 +498,7 @@ def main():
     elif args.command == "recompute":
         recompute(dict_args)
     elif args.command == "rings":
-        recompute(dict_args)
+        rings(dict_args)
     elif args.command == None:
         p.print_help()
 

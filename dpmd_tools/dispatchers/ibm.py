@@ -47,7 +47,8 @@ def batch_script_ibm(
     elif run_this == "rings":
         s += f"RINGS=/gpfs/home/rynik/Software/rings/bin/rings\n"
         # need to input twice y when auto cutoff determination
-        s += f"mpiexec printf 'y\ny\n' | $RINGS input\n"
+        #s += f"mpiexec printf 'y\ny\n' | $RINGS input\n"
+        s += f"mpiexec $RINGS input\n"
 
 
     return s

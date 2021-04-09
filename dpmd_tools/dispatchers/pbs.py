@@ -18,6 +18,9 @@ def batch_script_pbs(
     else:
         ppn = 12
 
+    if run_this == "rings":
+        ppn = 1
+
     log.debug(f"setting ppn to {ppn} for server {server}")
 
     s += "#!/bin/bash\n"
@@ -49,6 +52,7 @@ def batch_script_pbs(
     elif run_this == "rings":
         s += f"RINGS=/home/rynik/Software/rings/bin/rings\n"
         # need to input twice y when auto cutoff determination
-        s += f"/home/s/bin/mpirun -np {ppn} printf 'y\ny\n' | $RINGS input\n"
+        #s += f"/home/s/bin/mpirun -np {ppn} printf 'y\\ny\\n' | $RINGS input\n"
+        s += f"$RINGS input\n"
 
     return s
