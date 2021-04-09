@@ -337,6 +337,11 @@ def to_deepmd(args: dict):  # NOSONAR
                 max_n=args["max_select"],
             )
 
+        # if dev_e or dev_f is used system class is mutated to other base with new
+        # attributes taht are needed for plotting
+        if constraints.system_mutated:
+            multi_sys[k] = constraints.system
+
         chosen_sys.append(constraints.apply())
 
     lprint(

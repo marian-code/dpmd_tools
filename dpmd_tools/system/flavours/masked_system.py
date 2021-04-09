@@ -312,18 +312,24 @@ class MaskedSystem(BaseSystem):
     def add_dev_e(self, data: np.ndarray) -> "MaskedSystem":
         # TODO ugly hack
         self.data["energies_std"] = data
-        self._additional_arrays.append("energies_std")
-        self.has_dev_e = True
-        from .dev_system import DevESystem
-        return DevESystem(self.data, type(self))  # type: ignore
+
+        if self.has_dev_f:
+            from .dev_system import DevEFSystem
+            return DevEFSystem(self.data, type(self))  # type: ignore
+        else:
+            from .dev_system import DevESystem
+            return DevESystem(self.data, type(self))  # type: ignore
 
     def add_dev_f(self, data: np.ndarray) -> "MaskedSystem":
         # TODO ugly hack
         self.data["forces_std"] = data
-        self._additional_arrays.append("forces_std")
-        self.has_dev_f = True
-        from .dev_system import DevFSystem
-        return DevFSystem(self.data, type(self))  # type: ignore
+
+        if self.has_dev_e:
+            from .dev_system import DevEFSystem
+            return DevEFSystem(self.data, type(self))  # type: ignore
+        else:
+            from .dev_system import DevFSystem
+            return DevFSystem(self.data, type(self))  # type: ignore
 
     # * overriding methods *************************************************************
     def to_deepmd_raw(self, folder: Path, append: bool):

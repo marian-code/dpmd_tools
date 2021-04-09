@@ -1,6 +1,7 @@
 """Helper module with dpdata subclasses."""
 
 from concurrent.futures import as_completed
+from dpmd_tools.system.flavours.dev_system import DevEFSystem, DevESystem, DevFSystem
 from dpmd_tools.system.flavours.base import BaseSystem
 from pathlib import Path
 from typing import (
@@ -9,7 +10,9 @@ from typing import (
     Generic,
     ItemsView,
     KeysView,
-    List, NoReturn, Optional,
+    List,
+    NoReturn,
+    Optional,
     TypeVar,
     Union,
     ValuesView,
@@ -27,7 +30,16 @@ from typing_extensions import Literal
 from .flavours import AllSelectedError, ClusteredSystem, MaskedSystem, SelectedSystem
 
 MAX_FRAMES_PER_SET = 5000
-_SYS_TYPE = TypeVar("_SYS_TYPE", BaseSystem, MaskedSystem, ClusteredSystem, SelectedSystem)
+_SYS_TYPE = TypeVar(
+    "_SYS_TYPE",
+    BaseSystem,
+    MaskedSystem,
+    ClusteredSystem,
+    SelectedSystem,
+    DevFSystem,
+    DevESystem,
+    DevEFSystem,
+)
 
 
 class MultiSystemsVar(MultiSystems, Generic[_SYS_TYPE]):
@@ -72,6 +84,9 @@ class MultiSystemsVar(MultiSystems, Generic[_SYS_TYPE]):
 
         for ss, (system_name, system) in dump_job:
             system.to_deepmd_npy(folder / system_name, set_size=ss, prec=prec)
+
+    def __setitem__(self, key: str, system: _SYS_TYPE):
+        self.systems[key] = system
 
     def to_deepmd_raw(self, folder: Path, append: bool):
         for system_name, system in self.systems.items():

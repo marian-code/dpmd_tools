@@ -2,14 +2,13 @@
 
 import os
 from functools import wraps
-from typing import Any, Callable, List, NoReturn, Tuple
+from pathlib import Path
+from typing import Any, Callable, List, NoReturn, Tuple, Union
 
 import numpy as np
 from colorama import Fore, init
-
-from pathlib import Path
-from dpmd_tools.system import MaskedSystem
 from dpdata import LabeledSystem
+from dpmd_tools.system import ClusteredSystem, MaskedSystem
 
 init(autoreset=True)
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"  # or any {'0', '1', '2'}
@@ -44,7 +43,7 @@ class ApplyConstraint:
 
     def __init__(
         self,
-        system: MaskedSystem,
+        system: Union[MaskedSystem, ClusteredSystem],
         use_prints: bool,
         lprint: Callable[[Any], NoReturn],
         append: bool = True,
@@ -53,6 +52,7 @@ class ApplyConstraint:
 
         self.lprint = lprint
         self.system = system
+        self.system_mutated = False
         self.cache_predictions = cache_predictions
         self.use_prints = use_prints
         self.sel_indices = np.arange(self.system.get_nframes(), dtype=int)
@@ -273,6 +273,7 @@ class ApplyConstraint:
 
             # save for plotting
             self.system = self.system.add_dev_e(e_std)
+            self.system_mutated = True
 
         s = self._where((bracket[0] < e_std) & (e_std < bracket[1]))
 
@@ -323,6 +324,7 @@ class ApplyConstraint:
 
             # save for plotting
             self.system = self.system.add_dev_f(f_std_max)
+            self.system_mutated = True
 
         s = self._where((bracket[0] < f_std_max) & (f_std_max < bracket[1]))
 

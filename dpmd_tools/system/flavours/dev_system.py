@@ -131,7 +131,7 @@ def DevEFSystem(  # NOSONAR
         has_dev_f: bool = True
 
         def __new__(cls, *args, **kwargs):
-            instance = super(DevFSystem, cls).__new__(cls)
+            instance = super(DevEFSystem, cls).__new__(cls)
             return instance
 
     return DevEFSystem(data=data)
