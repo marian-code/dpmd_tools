@@ -56,7 +56,8 @@ def input_parser() -> dict:
         "--structure",
         type=Path,
         dest="instruc",
-        help="MetaD starting struture, in not input will use one from template directory",
+        help="MetaD starting struture, in not input will use one "
+        "from template directory",
     )
     p.add_argument(
         "-gs",
@@ -73,12 +74,7 @@ def input_parser() -> dict:
         help="set diagonal for transformation matrix if you want ot make supercell. "
         "e.g. -t 1 2 2 must be three numbers",
     )
-    p.add_argument(
-        "-w",
-        "--walltime",
-        type=int,
-        help="set walltime for PBS script"
-    )
+    p.add_argument("-w", "--walltime", type=int, help="set walltime for PBS script")
 
     return vars(p.parse_args())
 
@@ -88,7 +84,7 @@ def create_mtd(
     input: Path,
     output: Path,
     graphs: Optional[List[Path]] = None,
-    job_name: Optional[str] =  None,
+    job_name: Optional[str] = None,
     press: Optional[float] = None,
     temperature: Optional[float] = None,
     instruc: Optional[Path] = None,
@@ -113,10 +109,7 @@ def create_mtd(
 
     # copy directory
     shutil.copytree(
-        input,
-        output,
-        symlinks=True,
-        ignore=shutil.ignore_patterns(*ignore),
+        input, output, symlinks=True, ignore=shutil.ignore_patterns(*ignore),
     )
 
     if graphs:
@@ -125,7 +118,6 @@ def create_mtd(
             graphs = list(Path.cwd().glob(str(graphs[0])))
 
         graphs = [g.resolve() for g in graphs]
-        # graphs = [g.relative_to(output) for g in graphs]
 
         # check graphs number must be at least 2
         if len(graphs) < 2:
@@ -142,7 +134,11 @@ def create_mtd(
     # copy in-structure to target dir if it was input,
     # else check if in-structure is present
     if instruc:
-        atoms = read(instruc)
+        if instruc.suffix == ".instruc":
+            atoms = read(instruc, format="lammps-data", style="atomic")
+        else:
+            atoms = read(instruc)
+
     elif (output / "data.instruc").is_file():
         atoms = read(output / "data.instruc", format="lammps-data", style="atomic")
     else:
@@ -174,7 +170,8 @@ def create_mtd(
     for f in output.glob("*"):
         try:
             text = f.read_text()
-        except UnicodeDecodeError:  # this is for graph files
+        # this is for graph files, and directories
+        except (UnicodeDecodeError, IsADirectoryError):
             continue
 
         # alter lammps input
@@ -260,4 +257,3 @@ def create_mtd(
 if __name__ == "__main__":
 
     create_mtd(**input_parser())
-
