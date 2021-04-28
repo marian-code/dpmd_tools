@@ -119,7 +119,7 @@ class KmeansRunner:
                 x=n[:-1],
                 y=np.ediff1d(inertia),
                 mode="lines",
-                name="cluster abs inertia",
+                name="cluster abs inertia difference",
             )
         )
         fig.update_layout(
