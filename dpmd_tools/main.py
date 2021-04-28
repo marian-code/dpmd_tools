@@ -10,6 +10,7 @@ from dpmd_tools.system import MultiSystemsVar
 from dpmd_tools.to_deepmd import to_deepmd
 from dpmd_tools.scripts import upload
 from dpmd_tools.recompute import recompute, rings
+from dpmd_tools.scripts import run_vasp
 
 PARSER_CHOICES = [r.replace("read_", "") for r in readers.__all__]
 COLLECTOR_CHOICES = [
@@ -290,6 +291,13 @@ def main():
         type=str,
         help="path to directory with abiniitio calculations",
     )
+    parser_ev.add_argument(
+        "-s",
+        "--reference-structure",
+        default="cd",
+        type=str,
+        help="choose reference structure for H(p) plot",
+    )
 
     # * take prints ********************************************************************
     parser_prints = sp.add_parser(
@@ -465,6 +473,15 @@ def main():
     recompute_parser.add_argument(
         "-S", "--SCAN", help="whether to use SCAN functional", type=bool, default=False
     )
+    recompute_parser.add_argument(
+        "-l",
+        "--loader",
+        help="input <file>.<python function>. This must contain function that will be "
+        "imported and run. Function must not take any arguments and must return list "
+        "of atoms objects to recompute",
+        type=str,
+        required=True,
+    )
 
     # * analyse rings ******************************************************************
     rings_parser = sp.add_parser(
@@ -481,6 +498,37 @@ def main():
         required=True,
         help="set directory with rings options and input template files",
     )
+
+    # * run remote VASP ***************************************************************
+    run_vasp_parser = sp.add_parser(
+        "run-vasp",
+        help="script to run VASP simulation remotely, "
+        "suitable only for short one-off jobs",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    run_vasp_parser.add_argument(
+        "-s",
+        "--server",
+        help="remote server to run on",
+        type=str,
+        required=True,
+        choices=Connection.get_available_hosts(),
+    )
+    run_vasp_parser.add_argument(
+        "-l",
+        "--local",
+        type=Path,
+        default=Path.cwd(),
+        help="local directory with VASP files"
+    )
+    run_vasp_parser.add_argument(
+        "-r",
+        "--remote",
+        type=Path,
+        default=Path.cwd(),
+        help="remote directory to run VASP simulation"
+    )
+
 
     args = p.parse_args()
     dict_args = vars(args)
@@ -499,6 +547,8 @@ def main():
         recompute(dict_args)
     elif args.command == "rings":
         rings(dict_args)
+    elif args.command == "run-vasp":
+        run_vasp(dict_args)
     elif args.command == None:
         p.print_help()
 
