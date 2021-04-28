@@ -7,11 +7,14 @@ of ase."Atoms" objects.
 """
 
 import logging
+import os
 import re
 import signal
+import sys
+from importlib import import_module
 from pathlib import Path
 from shutil import copy
-from typing import TYPE_CHECKING, List, Optional, Tuple
+from typing import TYPE_CHECKING, Optional, Tuple
 
 from ase.calculators.vasp import Vasp
 from ase.io import write
@@ -227,37 +230,6 @@ class Recompute(RemoteBatchRun):
         return float(CPU_TIME.findall(output)[0])
 
 
-"""
-def prepare_data() -> List["Atoms"]:
-    log.warning("reimplement this if different behaviuor is desired")
-
-    log.info("reading gp_iter6_sparse9k.xml.xyz")
-
-    from ase.io.extxyz import read_xyz
-
-    atoms = list(read_xyz("gp_iter6_sparse9k.xml.xyz", index=slice(None)))
-
-    log.info("changing chemical symbols to Ge")
-    for i, a in enumerate(atoms):
-        species = ["Ge" for _ in range(len(a))]
-        atoms[i].set_chemical_symbols(species)
-
-    return atoms
-"""
-
-
-def prepare_data() -> List["Atoms"]:
-    log.warning("reimplement this if different behaviuor is desired")
-
-    log.info("reading from deepms data files")
-
-    import dpdata
-
-    system = dpdata.System("data_ge_xtalopt_EA", fmt="deepmd/raw")
-
-    return system.to_ase_structure()
-
-
 def recompute(args):
     args = postprocess_args(args)
 
@@ -266,6 +238,13 @@ def recompute(args):
         format="[%(asctime)s] %(levelname)-7s: %(message)s",
     )
     logging.getLogger("paramiko").setLevel(logging.WARNING)
+
+    loader = args["loader"]
+    mod, method = loader.rsplit(".", 1)
+    log.info(f"loading load data function {method} from module {mod}")
+    # must append path since the base is elsewhere when we are running installed script
+    sys.path.insert(0, os.getcwd())
+    prepare_data = getattr(import_module(mod), method)
 
     log.info(f"Running on:     {args['remote']}")
     log.info(f"Start:          {args['start']}")
@@ -299,7 +278,7 @@ def recompute(args):
             args["start"],
             args["end"],
             recompute_failed=args["failed_recompute"],
-             dump_file=DUMP_FILE,
+            dump_file=DUMP_FILE,
             threaded=args["threaded"],
         )
     else:
