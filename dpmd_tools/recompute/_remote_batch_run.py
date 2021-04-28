@@ -646,8 +646,6 @@ class RemoteBatchRun:
             sleep(1)
             wait_time += 1
 
-        print(" " * 100)
-
     def loop(self):
         """Run computational loop."""
         self.total_time = 0

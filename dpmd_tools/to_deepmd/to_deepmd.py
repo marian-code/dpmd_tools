@@ -18,7 +18,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from colorama import Fore, init
 from dpmd_tools.system import MaskedSystem, MultiSystemsVar, SelectedSystem
-from dpmd_tools.utils import BlockPBS, Loglprint, get_graphs, init_yappi
+from dpmd_tools.utils import BlockPBS, Loglprint, get_remote_files, init_yappi
 
 from .frame_filter import ApplyConstraint
 
@@ -33,7 +33,7 @@ init(autoreset=True)
 
 def postporcess_args(args: dict):
 
-    args["graphs"] = get_graphs(args["graphs"], remove_after=True)
+    args["graphs"] = get_remote_files(args["graphs"], remove_after=True)
 
     if args["parser"] == "lmp_traj_dev":
         if not args["dev_energy"] and not args["dev_force"]:
@@ -58,7 +58,7 @@ def postporcess_args(args: dict):
     if (args["dev_force"] or args["dev_energy"]) and not args["graphs"]:
         raise RuntimeError(
             "if --dev-force or --dev-energy is specified you must input also --graphs "
-            "argument. If out input --graphs argument then 'get_graphs' function has "
+            "argument. If out input --graphs argument then 'get_remote_files' function has "
             "not found any graph files based on your input."
         )
 
