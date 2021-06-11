@@ -8,7 +8,7 @@ from dpmd_tools.cluster import assign_clusters, take_prints
 from dpmd_tools.compare_graph import compare_ev
 from dpmd_tools.system import MultiSystemsVar
 from dpmd_tools.to_deepmd import to_deepmd
-from dpmd_tools.scripts import upload
+from dpmd_tools.scripts import upload, analyse_mtd
 from dpmd_tools.recompute import recompute
 
 PARSER_CHOICES = [r.replace("read_", "") for r in readers.__all__]
@@ -319,7 +319,7 @@ def main():
         required=True,
         type=Path,
         help="input file with setting for ase OFP comparator. "
-        "https://gitlab.com/askhl/ase/-/blob/master/ase/ga/ofp_comparator.py"
+        "https://gitlab.com/askhl/ase/-/blob/master/ase/ga/ofp_comparator.py",
     )
 
     # * assign clusters to structures **************************************************
@@ -468,7 +468,22 @@ def main():
         default=Path.cwd() / "data",
         type=Path,
         required=True,
-        help="set directory with rings options and input template files"
+        help="set directory with rings options and input template files",
+    )
+
+    # * analyse-mtd ********************************************************************
+    analyse_mtd_parser = sp.add_parser(
+        "analyse-mtd",
+        help="upload dataset to remote server dir and/or local dir",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+
+    analyse_mtd_parser.add_argument(
+        "-ev",
+        "--ev-only",
+        help="output only ev file",
+        default=False,
+        action="store_true",
     )
 
     args = p.parse_args()
@@ -487,7 +502,10 @@ def main():
     elif args.command == "recompute":
         recompute(dict_args)
     elif args.command == "rings":
-        recompute(dict_args)
+        raise Exception()
+        #recompute(dict_args)
+    elif args.command == "analyse-mtd":
+        analyse_mtd(**dict_args)
     elif args.command == None:
         p.print_help()
 
