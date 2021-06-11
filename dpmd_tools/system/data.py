@@ -1,33 +1,24 @@
 """Helper module with dpdata subclasses."""
 
 from concurrent.futures import as_completed
-from dpmd_tools.system.flavours.dev_system import DevEFSystem, DevESystem, DevFSystem
-from dpmd_tools.system.flavours.base import BaseSystem
 from pathlib import Path
-from typing import (
-    Any,
-    Callable,
-    Generic,
-    ItemsView,
-    KeysView,
-    List,
-    NoReturn,
-    Optional,
-    TypeVar,
-    Union,
-    ValuesView,
-)
+from typing import (Any, Callable, Generic, ItemsView, KeysView, List,
+                    NoReturn, Optional, TypeVar, Union, ValuesView)
 from warnings import warn
 
 import numpy as np
 from colorama import Fore
 from dpdata import LabeledSystem, MultiSystems
+from dpmd_tools.system.flavours.base import BaseSystem
+from dpmd_tools.system.flavours.dev_system import (DevEFSystem, DevESystem,
+                                                   DevFSystem)
 from dpmd_tools.utils import split_into
 from loky import get_reusable_executor
 from tqdm import tqdm
 from typing_extensions import Literal
 
-from .flavours import AllSelectedError, ClusteredSystem, MaskedSystem, SelectedSystem
+from .flavours import (AllSelectedError, ClusteredSystem, MaskedSystem,
+                       SelectedSystem)
 
 MAX_FRAMES_PER_SET = 5000
 _SYS_TYPE = TypeVar(
@@ -121,6 +112,7 @@ class MultiSystemsVar(MultiSystems, Generic[_SYS_TYPE]):
         self,
         paths: List[Path],
         dir_process: Callable[[Path, Any], List[_SYS_TYPE]],
+        slice_idx = Union[int, slice],
         **kwargs,
     ):
         """Single core serial data collector with no exception catching.
@@ -134,12 +126,13 @@ class MultiSystemsVar(MultiSystems, Generic[_SYS_TYPE]):
             systems = dir_process(path, **kwargs)
             for s in systems:
                 _print_messages(s.load_messages, print)
-                self.append(s)
+                self.append(s.sub_system(slice_idx))
 
     def collect_single(
         self,
         paths: List[Path],
         dir_process: Callable[[Path, Any], List[_SYS_TYPE]],
+        slice_idx = Union[int, slice],
         **kwargs,
     ):
         """Single core serial data collector."""
@@ -155,7 +148,7 @@ class MultiSystemsVar(MultiSystems, Generic[_SYS_TYPE]):
                 for s in systems:
                     _print_messages(s.load_messages, futures.write)
                     try:
-                        self.append(s)
+                        self.append(s.sub_system(slice_idx))
                     except Exception as e:
                         futures.write(f"Error in {p.name}: {e}")
 
@@ -163,6 +156,7 @@ class MultiSystemsVar(MultiSystems, Generic[_SYS_TYPE]):
         self,
         paths: List[Path],
         dir_process: Callable[[Path, Any], List[_SYS_TYPE]],
+        slice_idx = Union[int, slice],
         **kwargs,
     ):
         """Parallel async data collector."""
@@ -176,7 +170,7 @@ class MultiSystemsVar(MultiSystems, Generic[_SYS_TYPE]):
                 path = future2data[future].name
                 futures.set_description(f"extracting: {path}")
                 try:
-                    systems = future.result()
+                    systems: List[BaseSystem] = future.result()
                 except AllSelectedError as e:
                     futures.write(
                         f"All structures from system {path} have already been selected,"
@@ -189,7 +183,7 @@ class MultiSystemsVar(MultiSystems, Generic[_SYS_TYPE]):
                         _print_messages(s.load_messages, futures.write)
                         try:
                             s.data["atom_names"] = ["Ge"]
-                            self.append(s)
+                            self.append(s.sub_system(slice_idx))
                         except Exception as e:
                             futures.write(f"Error in {path}: {e}")
 

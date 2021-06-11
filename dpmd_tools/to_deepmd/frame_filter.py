@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Callable, List, NoReturn, Tuple, Union
 
 import numpy as np
+from ase import units
 from colorama import Fore, init
 from dpdata import LabeledSystem
 from dpmd_tools.system import ClusteredSystem, MaskedSystem
@@ -216,10 +217,30 @@ class ApplyConstraint:
             self._record_select(np.concatenate(selected))
 
     @check_bracket
+    def pressure(self, *, bracket: Tuple[float, float]):
+        """The pressure does not exactly correspond to one output by VASP.
+
+        This is a result of dpdata applying affine transormation.
+        """
+        self._selection_start(f"pressure")
+
+        v_pref = units.GPa / units.eV
+
+        volumes = np.linalg.det(self.system.data["cells"])
+        pressure_Gpa = np.trace(
+            self.system["virials"] / v_pref / volumes[:, None, None], axis1=1, axis2=2
+        )
+        print(pressure_Gpa)
+
+        s = self._where((bracket[0] < pressure_Gpa) & (pressure_Gpa < bracket[1]))
+
+        self._record_select(s)
+
+    @check_bracket
     def volume(self, *, bracket: Tuple[float, float], per_atom: bool = True):
         self._selection_start(f"volume{' per atom' if per_atom else ''}")
 
-        # this an array of square matrices, linalg det auto cancualtes det for
+        # this an array of square matrices, linalg det auto calculates det for
         # every sub matrix that is square
         volumes = np.linalg.det(self.system.data["cells"])
         if per_atom:
@@ -237,7 +258,7 @@ class ApplyConstraint:
         bracket: Tuple[float, float],
         std_method: bool = False,
         per_atom: bool = True,
-        from_md: bool = False
+        from_md: bool = False,
     ):
         """Select which labeled structures should be added to dataset.
 
@@ -286,7 +307,7 @@ class ApplyConstraint:
         graphs: List[str],
         bracket: Tuple[float, float],
         std_method: bool = False,
-        from_md: bool = False
+        from_md: bool = False,
     ):
         """Select which labeled structures should be added to dataset.
 

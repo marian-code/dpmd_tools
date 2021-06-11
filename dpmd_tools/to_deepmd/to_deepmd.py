@@ -62,6 +62,11 @@ def postporcess_args(args: dict):
             "not found any graph files based on your input."
         )
 
+    if len(args["take_slice"]) == 2 or args["take_slice"][0] == None:
+        args["take_slice"] = slice(*args["take_slice"])
+    else:
+        args["take_slice"] = args["take_slice"][0]
+
     return args
 
 
@@ -86,6 +91,7 @@ def wait(path: Path):
 
 def get_paths() -> List[Path]:
 
+    """
     paths = []
     for root, dirs, files in os.walk(WORK_DIR, topdown=True):
 
@@ -100,6 +106,8 @@ def get_paths() -> List[Path]:
 
         for i in sorted(set(delete), reverse=True):
             del dirs[i]
+    """
+    paths = [Path(str(i)) for i in range(6000, 6050)]
 
     return paths
 
@@ -284,7 +292,8 @@ def to_deepmd(args: dict):  # NOSONAR
             f"is not implemented"
         )
     else:
-        collector(paths, reader, **args)
+        slice_idx = args.pop("take_slice")
+        collector(paths, reader, slice_idx, **args)
 
     if multi_sys.get_nframes() == 0:
         lprint(f"{Fore.RED}aborting, no data was found")
@@ -317,6 +326,8 @@ def to_deepmd(args: dict):  # NOSONAR
             constraints.energy(bracket=args["energy"], per_atom=args["per_atom"])
         if args["volume"]:
             constraints.volume(bracket=args["volume"], per_atom=args["per_atom"])
+        if args["pressure"]:
+            constraints.pressure(bracket=args["pressure"])
         if args["graphs"] and args["dev_energy"]:
             constraints.dev_e(
                 graphs=args["graphs"],

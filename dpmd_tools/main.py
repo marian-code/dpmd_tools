@@ -10,7 +10,7 @@ from dpmd_tools.system import MultiSystemsVar
 from dpmd_tools.to_deepmd import to_deepmd
 from dpmd_tools.scripts import upload
 from dpmd_tools.recompute import recompute, rings
-from dpmd_tools.scripts import run_vasp
+from dpmd_tools.scripts import run_singlepoint
 
 PARSER_CHOICES = [r.replace("read_", "") for r in readers.__all__]
 COLLECTOR_CHOICES = [
@@ -28,14 +28,105 @@ def main():
 
     # * to_deepmd **********************************************************************
     parser_to_deepmd = sp.add_parser(
-        "to_deepmd",
+        "to-deepmd",
         help="Load various data formats to deepmd. Loaded data will be output "
         "to deepmd_data/all - (every read structure) and deepmd_data/for_train - (only "
         "selected structures) dirs",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
+    to_deepmd_parser(parser_to_deepmd)
 
-    parser_to_deepmd.add_argument(
+    # * ev *****************************************************************************
+    parser_ev = sp.add_parser(
+        "ev",
+        help="run E-V plots check",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    ev_parser(parser_ev)
+
+    # * take prints ********************************************************************
+    parser_prints = sp.add_parser(
+        "take-prints",
+        help="compute oganov fingerprints for all structures in dataset",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    prints_parser(parser_prints)
+
+    # * assign clusters to structures **************************************************
+    parser_select = sp.add_parser(
+        "assign-clusters",
+        help="assign cluster number to each structure",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    assign_clusters_parser(parser_select)
+
+    # * upload dataset *****************************************************************
+    parser_upload = sp.add_parser(
+        "upload",
+        help="upload dataset to remote server dir and/or local dir",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    upload_dataset_parser(parser_upload)
+
+    # * remote parser base**************************************************************
+    remote_parser = get_remote_parser()
+
+    # * recompute VASP *****************************************************************
+    recompute_parser = sp.add_parser(
+        "recompute",
+        parents=[remote_parser],
+        help="script to recompute arbitrarry structures set with VASP",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    remote_recompute_parser(recompute_parser)
+
+    # * analyse rings ******************************************************************
+    rings_parser = sp.add_parser(
+        "rings",
+        parents=[remote_parser],
+        help="script to analyse arbitrarry structures set with R.I.N.G.S",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    remote_analyse_parser(rings_parser)
+
+    # * run remote VASP ***************************************************************
+    run_singlepoint_parser = sp.add_parser(
+        "run-singlepoint",
+        help="script to run VASP/QE simulation remotely, "
+        "suitable only for short one-off jobs",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    singlepoint_parser(run_singlepoint_parser)
+
+    args = p.parse_args()
+    dict_args = vars(args)
+
+    if args.command == "to-deepmd":
+        to_deepmd(dict_args)
+    elif args.command == "ev":
+        compare_ev(dict_args)
+    elif args.command == "take-prints":
+        take_prints(dict_args)
+    elif args.command == "assign-clusters":
+        assign_clusters(dict_args)
+    elif args.command == "upload":
+        upload(dict_args)
+    elif args.command == "recompute":
+        recompute(dict_args)
+    elif args.command == "rings":
+        rings(dict_args)
+    elif args.command == "run-singlepoint":
+        run_singlepoint(**dict_args)
+    elif args.command == None:
+        p.print_help()
+    else:
+        print("Wrong command choice!")
+        p.print_help()
+
+
+def to_deepmd_parser(parser: argparse.ArgumentParser):
+
+    parser.add_argument(
         "-p",
         "--parser",
         default=None,
@@ -44,7 +135,18 @@ def main():
         choices=PARSER_CHOICES,
         help="input parser you wish to use",
     )
-    parser_to_deepmd.add_argument(
+    parser.add_argument(
+        "-ts",
+        "--take-slice",
+        nargs="+",
+        type=int,
+        default=[None],
+        help="some file formats may contain more than one frame in file, like "
+        "OUTCAR for instance with this option, you can control which frames "
+        "will be taken. e.g. --take-slice 5 -5. This will work as python "
+        "list slicing frames = list(frames)[5:-5]"
+    )
+    parser.add_argument(
         "-g",
         "--graphs",
         default=[],
@@ -57,10 +159,10 @@ def main():
         "also be located on remote e.g. "
         "'kohn@'/path/to/file/ge_all_s1[3-6].pb'",
     )
-    parser_to_deepmd.add_argument(
+    parser.add_argument(
         "-e", "--every", default=None, type=int, help="take every n-th frame"
     )
-    parser_to_deepmd.add_argument(
+    parser.add_argument(
         "-v",
         "--volume",
         default=None,
@@ -68,7 +170,7 @@ def main():
         nargs=2,
         help="constrain structures volume. Input as 10.0 31. In [A^3]",
     )
-    parser_to_deepmd.add_argument(
+    parser.add_argument(
         "-n",
         "--energy",
         default=None,
@@ -76,7 +178,15 @@ def main():
         nargs=2,
         help="constrain structures energy. Input as -5 -2. In [eV]",
     )
-    parser_to_deepmd.add_argument(
+    parser.add_argument(
+        "-pr",
+        "--pressure",
+        default=None,
+        type=float,
+        nargs=2,
+        help="constrain structures pressure. Input as 1.0 50. In GPa"
+    )
+    parser.add_argument(
         "-a",
         "--per-atom",
         default=False,
@@ -84,7 +194,7 @@ def main():
         help="set if energy, energy-dev and volume constraints are "
         "computed per atom or for the whole structure",
     )
-    parser_to_deepmd.add_argument(
+    parser.add_argument(
         "-gp",
         "--get-paths",
         default=None,
@@ -93,9 +203,9 @@ def main():
         "specified default function will be used. Otherwise you can input "
         "python code as string that outputs list of 'Path' objects. The "
         "Path object is already imported for you. Example: "
-        "-g '[Path.cwd() / \"OUTCAR\"]'",
+        "-gp '[Path.cwd() / \"OUTCAR\"]'",
     )
-    parser_to_deepmd.add_argument(
+    parser.add_argument(
         "-de",
         "--dev-energy",
         default=False,
@@ -103,7 +213,7 @@ def main():
         nargs=2,
         help="specify energy deviations lower and upper bound for selection",
     )
-    parser_to_deepmd.add_argument(
+    parser.add_argument(
         "-df",
         "--dev-force",
         default=False,
@@ -111,7 +221,7 @@ def main():
         nargs=2,
         help="specify force deviations lower and upper bound for selection",
     )
-    parser_to_deepmd.add_argument(
+    parser.add_argument(
         "--std-method",
         default=False,
         action="store_true",
@@ -122,7 +232,7 @@ def main():
         "different models will be used, this will not account for any prediction "
         "biases.",
     )
-    parser_to_deepmd.add_argument(
+    parser.add_argument(
         "-m",
         "--mode",
         default="new",
@@ -134,7 +244,7 @@ def main():
         "-gp/--get-paths arguments and start the script in deepmd_data dir, "
         "in this mode only dpmd_raw data format is supported",
     )
-    parser_to_deepmd.add_argument(
+    parser.add_argument(
         "-f",
         "--fingerprint-use",
         default=False,
@@ -142,7 +252,7 @@ def main():
         help="if max-select argument is used that this option specifies "
         "that subsample will be selected based on fingerprints",
     )
-    parser_to_deepmd.add_argument(
+    parser.add_argument(
         "-ms",
         "--max-select",
         default=None,
@@ -155,7 +265,7 @@ def main():
         "option computes the potrion from whole dataset length not only "
         "from unselected structures",
     )
-    parser_to_deepmd.add_argument(
+    parser.add_argument(
         "-mf",
         "--min-frames",
         default=30,
@@ -165,14 +275,14 @@ def main():
         "This is due to difficulties in partitioning and inefficiency of "
         "DeepMD when working with such small data",
     )
-    parser_to_deepmd.add_argument(
+    parser.add_argument(
         "-nf",
         "--n-from-cluster",
         default=100,
         type=int,
         help="number of random samples to select from each cluster",
     )
-    parser_to_deepmd.add_argument(
+    parser.add_argument(
         "-cp",
         "--cache-predictions",
         default=False,
@@ -181,20 +291,20 @@ def main():
         "running directory so they do not have to be recomputed when "
         "you wish to run the scrip again",
     )
-    parser_to_deepmd.add_argument(
+    parser.add_argument(
         "--save",
         default="input",
         choices=("no", "input", "yes"),
         help="automatically accept when prompted to save changes",
     )
-    parser_to_deepmd.add_argument(
+    parser.add_argument(
         "-b",
         "--block-pbs",
         default=False,
         action="store_true",
         help="put an empty job in PBS queue to stop others from trying to access GPU",
     )
-    parser_to_deepmd.add_argument(
+    parser.add_argument(
         "-dc",
         "--data-collector",
         default="cf",
@@ -202,7 +312,7 @@ def main():
         help="choose data collector callable. 'cf' is parallel based on "
         "concurrent.futures and loky",
     )
-    parser_to_deepmd.add_argument(
+    parser.add_argument(
         "-fi",
         "--force-iteration",
         type=int,
@@ -215,13 +325,13 @@ def main():
         "in previous 2. You can also input negative number e.g. -2 which will have the "
         "same effect in this case giving you the 2. generation as base",
     )
-    parser_to_deepmd.add_argument(
+    parser.add_argument(
         "--profile",
         default=False,
         action="store_true",
         help="profile this run with yappi",
     )
-    parser_to_deepmd.add_argument(
+    parser.add_argument(
         "-w",
         "--wait_for",
         type=str,
@@ -230,20 +340,17 @@ def main():
         "then start computation. Accepts path to file or dir",
     )
 
-    # * ev *****************************************************************************
-    parser_ev = sp.add_parser(
-        "ev",
-        help="run E-V plots check",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-    parser_ev.add_argument(
+
+def ev_parser(parser: argparse.ArgumentParser):
+
+    parser.add_argument(
         "-n",
         "--nnp",
         help="input dir with nnp potential, if "
         "none is input then potential in ./nnp_model will be used",
         default=None,
     )
-    parser_ev.add_argument(
+    parser.add_argument(
         "-g",
         "--graph",
         default=None,
@@ -251,14 +358,14 @@ def main():
         help="use deepMD graph(s). Can also input graphs on remote "
         "(server@/path/to/file). Wildcard '*' is also accepted.",
     )
-    parser_ev.add_argument(
+    parser.add_argument(
         "-r",
         "--recompute",
         default=False,
         action="store_true",
         help="if false only collect previous results and don't run lammps",
     )
-    parser_ev.add_argument(
+    parser.add_argument(
         "-e",
         "--equation",
         default="birchmurnaghan",
@@ -266,7 +373,7 @@ def main():
         choices=("birchmurnaghan", "p3"),
         help="choose equation to fit datapoints",
     )
-    parser_ev.add_argument(
+    parser.add_argument(
         "-t",
         "--train-dir",
         default=None,
@@ -274,7 +381,7 @@ def main():
         nargs="*",
         help="input directories with data subdirs so data coverage can be computed",
     )
-    parser_ev.add_argument(
+    parser.add_argument(
         "-m",
         "--mtds",
         default=None,
@@ -284,28 +391,32 @@ def main():
         "be local(e.g. ../run/en_vol.npz) or remote"
         "(e.g. host@/.../en_vol.npz",
     )
-    parser_ev.add_argument(
+    parser.add_argument(
         "-a",
         "--abinit-dir",
         default=None,
         type=str,
         help="path to directory with abiniitio calculations",
     )
-    parser_ev.add_argument(
+    parser.add_argument(
         "-s",
         "--reference-structure",
         default="cd",
         type=str,
         help="choose reference structure for H(p) plot",
     )
-
-    # * take prints ********************************************************************
-    parser_prints = sp.add_parser(
-        "take-prints",
-        help="compute oganov fingerprints for all structures in dataset",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    parser.add_argument(
+        "-se",
+        "--shift-ev",
+        default=False,
+        action="store_true",
+        help="Shift all E(V) curves according to the lowest point E0, V0 point",
     )
-    parser_prints.add_argument(
+
+
+def prints_parser(parser: argparse.ArgumentParser):
+
+    parser.add_argument(
         "-bs",
         "--batch-size",
         default=1e6,
@@ -313,7 +424,7 @@ def main():
         help="Size of chunks that will be used to save "
         "fingerprint data, to avoid memory overflow",
     )
-    parser_prints.add_argument(
+    parser.add_argument(
         "-p",
         "--parallel",
         default=False,
@@ -321,7 +432,7 @@ def main():
         help="whether to run fingerprinting in parallel, usually there is speedup "
         "benefit up to an order of magnitude",
     )
-    parser_prints.add_argument(
+    parser.add_argument(
         "-s",
         "--settings-file",
         required=True,
@@ -330,20 +441,17 @@ def main():
         "https://gitlab.com/askhl/ase/-/blob/master/ase/ga/ofp_comparator.py",
     )
 
-    # * assign clusters to structures **************************************************
-    parser_select = sp.add_parser(
-        "assign-clusters",
-        help="assign cluster number to each structure",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-    parser_select.add_argument(
+
+def assign_clusters_parser(parser: argparse.ArgumentParser):
+
+    parser.add_argument(
         "-p",
         "--passes",
         default=5000,
         type=int,
         help="number ov dataset passes of MiniBatch K-means online learning loop.",
     )
-    parser_select.add_argument(
+    parser.add_argument(
         "-bs",
         "--batch_size",
         default=int(1e6),
@@ -353,27 +461,25 @@ def main():
         "those random batches will be chosen of size "
         "specified by this argument",
     )
-    parser_select.add_argument(
+    parser.add_argument(
         "-nc",
         "--n-clusters",
         default=100,
         type=int,
         help="target number of clusters for K-Means algorithm",
     )
-    # * upload dataset *****************************************************************
-    parser_upload = sp.add_parser(
-        "upload",
-        help="upload dataset to remote server dir and/or local dir",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-    parser_upload.add_argument(
+
+
+def upload_dataset_parser(parser: argparse.ArgumentParser):
+
+    parser.add_argument(
         "-s",
         "--server",
         type=str,
         choices=Connection.get_available_hosts(),
         help="select target server to upload to",
     )
-    parser_upload.add_argument(
+    parser.add_argument(
         "-t",
         "--target",
         type=str,
@@ -382,14 +488,14 @@ def main():
         "mirror local directory",
     )
 
-    parser_upload.add_argument(
+    parser.add_argument(
         "-l",
         "--local",
         type=str,
         default=None,
         help="select LOCAL target directory to mirror data uploaded to remote",
     )
-    parser_upload.add_argument(
+    parser.add_argument(
         "-d",
         "--dirs",
         required=True,
@@ -400,18 +506,80 @@ def main():
         "dir structure. Accepts also wildcards",
     )
 
-    # * remote parser base**************************************************************
-    remote_parser = argparse.ArgumentParser(
+
+def remote_recompute_parser(parser: argparse.ArgumentParser):
+
+    parser.add_argument(
+        "-S", "--SCAN", help="whether to use SCAN functional", type=bool, default=False
+    )
+    parser.add_argument(
+        "-l",
+        "--loader",
+        help="input <dir>.<file>.<python function>. This must contain function that will be "
+        "imported and run. Function must not take any arguments and must return list "
+        "of atoms objects to recompute",
+        type=str,
+        required=True,
+    )
+
+
+def remote_analyse_parser(parser: argparse.ArgumentParser):
+
+    parser.add_argument(
+        "-t",
+        "--template",
+        default=Path.cwd() / "data",
+        type=Path,
+        required=True,
+        help="set directory with rings options and input template files",
+    )
+
+
+def singlepoint_parser(parser: argparse.ArgumentParser):
+
+    parser.add_argument(
+        "-s",
+        "--server",
+        help="remote server to run on",
+        type=str,
+        required=True,
+        choices=Connection.get_available_hosts(),
+    )
+    parser.add_argument(
+        "-l",
+        "--local",
+        type=Path,
+        default=Path.cwd(),
+        help="local directory with VASP files",
+    )
+    parser.add_argument(
+        "-r",
+        "--remote",
+        type=Path,
+        default=Path.cwd(),
+        help="remote directory to run VASP simulation",
+    )
+    parser.add_argument(
+        "-w",
+        "--what",
+        type=str,
+        choices=("VASP", "QE"),
+        default="VASP",
+        help="choose what code to run",
+    )
+
+
+def get_remote_parser():
+
+    p = argparse.ArgumentParser(
         add_help=False, formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
 
-    remote_parser.add_argument(
-        "-s", "--start", help="start of the interval", type=int, default=0
-    )
-    remote_parser.add_argument(
+    p.add_argument("-s", "--start", help="start of the interval", type=int, default=0)
+    p.add_argument(
         "-e", "--end", help="end of the interval (None = end)", type=int, default=None
     )
-    remote_parser.add_argument(
+    p.add_argument(
         "-r",
         "--remote",
         help="server to run on",
@@ -428,14 +596,14 @@ def main():
             "local",
         ),
     )
-    remote_parser.add_argument(
+    p.add_argument(
         "-f",
         "--failed-recompute",
         help="re-run failed jobs",
         action="store_true",
         default=False,
     )
-    remote_parser.add_argument(
+    p.add_argument(
         "-th",
         "--threaded",
         action="store_true",
@@ -443,7 +611,7 @@ def main():
         help="run using multithreading. This is only usefull when you have thousands "
         "of very short jobs. Console output order will get messed up",
     )
-    remote_parser.add_argument(
+    p.add_argument(
         "-u",
         "--user",
         nargs="+",
@@ -452,7 +620,7 @@ def main():
         help="input either one user name which will be used for all servers or one "
         "for each server in corresponding order",
     )
-    remote_parser.add_argument(
+    p.add_argument(
         "-m",
         "--max-jobs",
         nargs="+",
@@ -463,94 +631,7 @@ def main():
         "will be same for all",
     )
 
-    # * recompute VASP *****************************************************************
-    recompute_parser = sp.add_parser(
-        "recompute",
-        parents=[remote_parser],
-        help="script to recompute arbitrarry structures set with VASP",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-    recompute_parser.add_argument(
-        "-S", "--SCAN", help="whether to use SCAN functional", type=bool, default=False
-    )
-    recompute_parser.add_argument(
-        "-l",
-        "--loader",
-        help="input <file>.<python function>. This must contain function that will be "
-        "imported and run. Function must not take any arguments and must return list "
-        "of atoms objects to recompute",
-        type=str,
-        required=True,
-    )
-
-    # * analyse rings ******************************************************************
-    rings_parser = sp.add_parser(
-        "rings",
-        parents=[remote_parser],
-        help="script to analyse arbitrarry structures set with R.I.N.G.S",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-    rings_parser.add_argument(
-        "-t",
-        "--template",
-        default=Path.cwd() / "data",
-        type=Path,
-        required=True,
-        help="set directory with rings options and input template files",
-    )
-
-    # * run remote VASP ***************************************************************
-    run_vasp_parser = sp.add_parser(
-        "run-vasp",
-        help="script to run VASP simulation remotely, "
-        "suitable only for short one-off jobs",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-    run_vasp_parser.add_argument(
-        "-s",
-        "--server",
-        help="remote server to run on",
-        type=str,
-        required=True,
-        choices=Connection.get_available_hosts(),
-    )
-    run_vasp_parser.add_argument(
-        "-l",
-        "--local",
-        type=Path,
-        default=Path.cwd(),
-        help="local directory with VASP files"
-    )
-    run_vasp_parser.add_argument(
-        "-r",
-        "--remote",
-        type=Path,
-        default=Path.cwd(),
-        help="remote directory to run VASP simulation"
-    )
-
-
-    args = p.parse_args()
-    dict_args = vars(args)
-
-    if args.command == "to_deepmd":
-        to_deepmd(dict_args)
-    elif args.command == "ev":
-        compare_ev(dict_args)
-    elif args.command == "take-prints":
-        take_prints(dict_args)
-    elif args.command == "assign-clusters":
-        assign_clusters(dict_args)
-    elif args.command == "upload":
-        upload(dict_args)
-    elif args.command == "recompute":
-        recompute(dict_args)
-    elif args.command == "rings":
-        rings(dict_args)
-    elif args.command == "run-vasp":
-        run_vasp(dict_args)
-    elif args.command == None:
-        p.print_help()
+    return p
 
 
 if __name__ == "__main__":
