@@ -18,7 +18,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from colorama import Fore, init
 from dpmd_tools.system import MaskedSystem, MultiSystemsVar, SelectedSystem
-from dpmd_tools.utils import BlockPBS, Loglprint, get_graphs, init_yappi
+from dpmd_tools.utils import BlockPBS, Loglprint, get_remote_files, init_yappi
 
 from .frame_filter import ApplyConstraint
 
@@ -33,7 +33,7 @@ init(autoreset=True)
 
 def postporcess_args(args: dict):
 
-    args["graphs"] = get_graphs(args["graphs"], remove_after=True)
+    args["graphs"] = get_remote_files(args["graphs"], remove_after=True)
 
     if args["parser"] == "lmp_traj_dev":
         if not args["dev_energy"] and not args["dev_force"]:
@@ -58,9 +58,14 @@ def postporcess_args(args: dict):
     if (args["dev_force"] or args["dev_energy"]) and not args["graphs"]:
         raise RuntimeError(
             "if --dev-force or --dev-energy is specified you must input also --graphs "
-            "argument. If out input --graphs argument then 'get_graphs' function has "
+            "argument. If out input --graphs argument then 'get_remote_files' function has "
             "not found any graph files based on your input."
         )
+
+    if len(args["take_slice"]) == 2 or args["take_slice"][0] == None:
+        args["take_slice"] = slice(*args["take_slice"])
+    else:
+        args["take_slice"] = args["take_slice"][0]
 
     return args
 
@@ -86,6 +91,7 @@ def wait(path: Path):
 
 def get_paths() -> List[Path]:
 
+    """
     paths = []
     for root, dirs, files in os.walk(WORK_DIR, topdown=True):
 
@@ -100,6 +106,8 @@ def get_paths() -> List[Path]:
 
         for i in sorted(set(delete), reverse=True):
             del dirs[i]
+    """
+    paths = [Path(str(i)) for i in range(6000, 6050)]
 
     return paths
 
@@ -284,7 +292,8 @@ def to_deepmd(args: dict):  # NOSONAR
             f"is not implemented"
         )
     else:
-        collector(paths, reader, **args)
+        slice_idx = args.pop("take_slice")
+        collector(paths, reader, slice_idx, **args)
 
     if multi_sys.get_nframes() == 0:
         lprint(f"{Fore.RED}aborting, no data was found")
@@ -317,6 +326,8 @@ def to_deepmd(args: dict):  # NOSONAR
             constraints.energy(bracket=args["energy"], per_atom=args["per_atom"])
         if args["volume"]:
             constraints.volume(bracket=args["volume"], per_atom=args["per_atom"])
+        if args["pressure"]:
+            constraints.pressure(bracket=args["pressure"])
         if args["graphs"] and args["dev_energy"]:
             constraints.dev_e(
                 graphs=args["graphs"],
@@ -336,6 +347,11 @@ def to_deepmd(args: dict):  # NOSONAR
             constraints.max_select(
                 max_n=args["max_select"],
             )
+
+        # if dev_e or dev_f is used system class is mutated to other base with new
+        # attributes taht are needed for plotting
+        if constraints.system_mutated:
+            multi_sys[k] = constraints.system
 
         chosen_sys.append(constraints.apply())
 

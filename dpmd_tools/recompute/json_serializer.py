@@ -5,7 +5,7 @@ from functools import singledispatch
 from pathlib import Path
 from typing import Sequence, TYPE_CHECKING, Optional
 
-from ssh_utilities import Connection, SSHConnection
+from ssh_utilities import Connection, SSHConnection, LocalConnection
 
 if TYPE_CHECKING:
     from ssh_utilities import SSHPath
@@ -46,6 +46,9 @@ def json_serializable(obj):
 def _handle_conn(obj: SSHConnection):
     return str(obj)
 
+@json_serializable.register(LocalConnection)
+def _handle_conn(obj: LocalConnection):
+    return str(obj)
 
 @json_serializable.register(Job)
 def _handle_job(obj: Job):

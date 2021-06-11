@@ -25,6 +25,7 @@ __all__ = [
     "read_vasp_file",
     "read_dpmd_raw",
     "read_lmp_traj_dev",
+    "read_outcar_relax",
 ]
 
 
@@ -67,6 +68,12 @@ def read_vasp_dir(path: Path, **kwargs) -> List[MaskedSystem]:
 
 def read_vasp_file(outcar: Path, **kwargs) -> List[MaskedSystem]:
     return [MaskedSystem(file_name=outcar, fmt="vasp/outcar")]
+
+
+
+def read_outcar_relax(outcar: Path, **kwargs) -> List[MaskedSystem]:
+    system = MaskedSystem(file_name=outcar, fmt="vasp/outcar")
+    return system.sub_system(-1)
 
 
 def read_dpmd_raw(

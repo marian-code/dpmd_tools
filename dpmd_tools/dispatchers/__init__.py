@@ -3,6 +3,7 @@ import logging
 
 from .ibm import batch_script_ibm
 from .pbs import batch_script_pbs
+from .local import local_run_script
 
 try:
     from typing import Literal
@@ -64,3 +65,4 @@ Dispatcher.register("hartree")(batch_script_pbs)
 Dispatcher.register("landau")(batch_script_pbs)
 Dispatcher.register("schrodinger")(batch_script_pbs)
 Dispatcher.register("planck")(batch_script_pbs)
+Dispatcher.register("local")(local_run_script)

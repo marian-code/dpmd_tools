@@ -59,7 +59,7 @@ class Analyse(RemoteBatchRun):
 
     # * prepare job ********************************************************************
     def prepare_calc(
-        self, index: int, calc_dir: Path, server: str, atoms: Atoms
+        self, index: int, calc_dir: Path, server: str, atoms: "Atoms"
     ) -> Tuple[str, str]:
 
         log.info("Preparing job on local side...")
@@ -107,7 +107,7 @@ class Analyse(RemoteBatchRun):
 
         source.unlink()
 
-    def _mod_input(self, calc_dir: Path, xyz_file: Path, atoms: Atoms):
+    def _mod_input(self, calc_dir: Path, xyz_file: Path, atoms: "Atoms"):
         """RINGS input file modification."""
 
         def r(string, to_replace, replace_with):
@@ -122,7 +122,7 @@ class Analyse(RemoteBatchRun):
         symb = list(set(atoms.get_chemical_symbols()))
 
         with open(self.RINGS_TEMPLATE / "input", "r") as infile, open(
-            calc_dir / "input"
+            calc_dir / "input", "w"
         ) as outfile:
             for line in infile:
                 if "$na$" in line:
@@ -156,9 +156,11 @@ class Analyse(RemoteBatchRun):
                     for i, a in enumerate(symb):
                         for b in symb[i:]:
                             c += f"{a:2} {b:2}   {self.CUTOFF}\n"
+                    
+                    c += f"Grtot   {self.CUTOFF}{' ' * 26}# (20)\n"
 
                     # replace last linebreak
-                    c = c.rsplit("\n")[0]
+                    c = c.rsplit("\n", 1)[0]
                     line = line.replace("$cutoffs$", c)
                 outfile.write(line)
 
@@ -223,7 +225,7 @@ class Analyse(RemoteBatchRun):
         return float(CPU_TIME.findall(output)[0])
 
 
-def prepare_data() -> List[Atoms]:
+def prepare_data() -> List["Atoms"]:
     log.warning("reimplement this if different behaviuor is desired")
 
     log.info("reading from XDATCAR files")
@@ -231,7 +233,7 @@ def prepare_data() -> List[Atoms]:
     from ase.io import read
 
     system = read("../XDATCAR", index=slice(None))
-    system.extend(read("XDATCAR", index=slice(None)))
+    system.extend(read("../continued/XDATCAR", index=slice(None)))
 
     return system
 
@@ -268,6 +270,26 @@ def rings(args):
     else:
         restart = False
 
+    SETTINGS = {}
+    for r in args["remote"]:
+        user = args["user"][args["remote"].index(r)]
+        max_jobs = args["max_jobs"][args["remote"].index(r)]
+        if r == "aurel":
+            SETTINGS[r] = {
+                "max_jobs": max_jobs,
+                "remote_dir": f"/gpfs/fastscratch/{user}/analyse/",
+            }
+        elif r == "local":
+            SETTINGS[r] = {
+                "max_jobs": max_jobs,
+                "remote_dir": str(Path.cwd().resolve()),
+            }
+        else:
+            SETTINGS[r] = {
+                "max_jobs": max_jobs,
+                "remote_dir": f"/home/{user}/Raid/analyse/",
+            }
+
     if restart:
         r = Analyse.from_json(
             args["remote"],
@@ -275,27 +297,11 @@ def rings(args):
             args["start"],
             args["end"],
             recompute_failed=args["failed_recompute"],
+            remote_settings=SETTINGS,
             dump_file=DUMP_FILE,
             threaded=args["threaded"],
         )
     else:
-        SETTINGS = {}
-        for r in args["remote"]:
-            user = args["user"][args["remote"].index(r)]
-            max_jobs = args["max_jobs"][args["remote"].index(r)]
-            if r == "aurel":
-                SETTINGS[r] = (
-                    {
-                        "max_jobs": max_jobs,
-                        "remote_dir": f"/gpfs/fastscratch/{user}/analyse/",
-                    },
-                )
-            else:
-                SETTINGS[r] = {
-                    "max_jobs": max_jobs,
-                    "remote_dir": f"/home/{user}/Raid/analyse/",
-                }
-
         r = Analyse(
             args["remote"],
             args["user"],

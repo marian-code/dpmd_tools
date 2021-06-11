@@ -14,11 +14,13 @@ from colorama import Fore
 from ssh_utilities import Connection
 
 
-def get_graphs(input_graphs: List[str], remove_after: bool = False) -> List[Path]:
+def get_remote_files(
+    input_paths: List[str], remove_after: bool = False, same_names: bool = False
+) -> List[Path]:
 
     graphs = []
-    for graph_str in input_graphs:
-        host_path = graph_str.split("@")
+    for path_str in input_paths:
+        host_path = path_str.split("@")
 
         if len(host_path) == 1:
             host = "local"
@@ -33,20 +35,24 @@ def get_graphs(input_graphs: List[str], remove_after: bool = False) -> List[Path
             remote_path = c.pathlib.Path(path_str)
             remote_root = c.pathlib.Path(remote_path.root)
             remote_pattern = str(remote_path.relative_to(remote_path.root))
-            remote_graphs = list(remote_root.glob(remote_pattern))
+            remote_files = list(remote_root.glob(remote_pattern))
 
-            for rg in remote_graphs:
+            for rf in remote_files:
 
-                print(f"Getting graph from {host}: {rg}")
+                print(f"Getting file from {host}: {rf}")
 
-                local_graph = Path.cwd() / rg.name
+                if same_names and not local:
+                    local_graph = Path.cwd() / f"{rf.stem}.{rf.parent.name}{rf.suffix}"
+                else:
+                    local_graph = Path.cwd() / rf.name
                 try:
-                    c.shutil.copy2(rg, local_graph, direction="get")
+                    c.shutil.copy2(rf, local_graph, direction="get")
                 except SameFileError:
                     pass
                 graphs.append(local_graph)
 
     if remove_after:
+
         def _remove_graphs(graphs: List[Path]):
             for g in graphs:
                 g.unlink()

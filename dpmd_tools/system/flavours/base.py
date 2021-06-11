@@ -21,7 +21,6 @@ if TYPE_CHECKING:
             "energies": np.ndarray,
             "forces": np.ndarray,
             "virials": np.ndarray,
-
         },
     )
 
@@ -115,15 +114,15 @@ class BaseSystem(LabeledSystem):
                 f"{type(self)}, got {type(system)}"
             )
         else:
+            super(BaseSystem, self).append(system)
             for a in self._additional_arrays:
-                self.data[a] = np.concatenate((self.data[a], system.data[a]), axis=0)
+                self.data[a] = np.concatenate((self.data[a], system[a]), axis=0)
 
-        super(BaseSystem, self).append(system)
-        for a in self._additional_arrays:
-            self.data[a] = np.concatenate((self.data[a], system[a]), axis=0)
-
-    def sub_system(self, f_idx: Union[np.ndarray, int]) -> "BaseSystem":
-        """Manipulates also arrays defined by additional_arrays beyond standard set."""
+    def sub_system(self, f_idx: Union[np.ndarray, int, slice]) -> "BaseSystem":
+        """Manipulates also arrays defined by additional_arrays attribute.
+        
+        The standard set is manimpulated by dpdata.
+        """
         tmp_sys = super(BaseSystem, self).sub_system(f_idx)
         for a in self._additional_arrays:
             tmp_sys.data[a] = self.data[a][f_idx]
@@ -138,3 +137,19 @@ class BaseSystem(LabeledSystem):
         for a in self._additional_arrays:
             self.data[a] = self.data[a][idx]
         return idx
+
+    def __str__(self):
+
+        s = "NAME" + " " * 16 + ": SHAPE\n"
+        for k, v in self.data.items():
+            try:
+                s += f"{k:20}: {v.shape}\n"
+            except AttributeError:
+                try:
+                    s += f"{k:20}: {len(v)}\n"
+                except Exception:
+                    s += f"{k:20}: {v}\n"
+
+
+
+        return s

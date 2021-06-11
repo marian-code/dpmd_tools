@@ -7,11 +7,14 @@ of ase."Atoms" objects.
 """
 
 import logging
+import os
 import re
 import signal
+import sys
+from importlib import import_module
 from pathlib import Path
 from shutil import copy
-from typing import TYPE_CHECKING, List, Optional, Tuple
+from typing import TYPE_CHECKING, Optional, Tuple
 
 from ase.calculators.vasp import Vasp
 from ase.io import write
@@ -30,7 +33,7 @@ log = logging.getLogger(__name__)
 
 
 def postprocess_args(args: dict) -> dict:
-
+    """Command line arguments post-process and expansion."""
     if len(args["user"]) == 1:
         args["user"] = args["user"] * len(args["remote"])
 
@@ -44,7 +47,7 @@ def postprocess_args(args: dict) -> dict:
 class Recompute(RemoteBatchRun):
     """Class that encapsulates all the remote server analyse logic."""
 
-    def set_constants(
+    def set_constants(  # type: ignore
         self,
         *,
         scan: bool,
@@ -160,6 +163,9 @@ class Recompute(RemoteBatchRun):
 
         return job_name, job_script
 
+    def set_job_attr(self, job: "Job"):
+        job.SCAN = self.SCAN
+
     def _get_incar(self, server: str, atoms: "Atoms", calc_dir: Path):
 
         args = {"nsim": 4, "npar": 4, "kpar": 2 if len(atoms) > 10 else 1}
@@ -224,37 +230,6 @@ class Recompute(RemoteBatchRun):
         return float(CPU_TIME.findall(output)[0])
 
 
-"""
-def prepare_data() -> List["Atoms"]:
-    log.warning("reimplement this if different behaviuor is desired")
-
-    log.info("reading gp_iter6_sparse9k.xml.xyz")
-
-    from ase.io.extxyz import read_xyz
-
-    atoms = list(read_xyz("gp_iter6_sparse9k.xml.xyz", index=slice(None)))
-
-    log.info("changing chemical symbols to Ge")
-    for i, a in enumerate(atoms):
-        species = ["Ge" for _ in range(len(a))]
-        atoms[i].set_chemical_symbols(species)
-
-    return atoms
-"""
-
-
-def prepare_data() -> List["Atoms"]:
-    log.warning("reimplement this if different behaviuor is desired")
-
-    log.info("reading from deepms data files")
-
-    import dpdata
-
-    system = dpdata.System("data_ge_xtalopt_EA", fmt="deepmd/raw")
-
-    return system.to_ase_structure()
-
-
 def recompute(args):
     args = postprocess_args(args)
 
@@ -263,6 +238,13 @@ def recompute(args):
         format="[%(asctime)s] %(levelname)-7s: %(message)s",
     )
     logging.getLogger("paramiko").setLevel(logging.WARNING)
+
+    loader = args["loader"]
+    mod, method = loader.rsplit(".", 1)
+    log.info(f"loading load data function {method} from module {mod}")
+    # must append path since the base is elsewhere when we are running installed script
+    sys.path.insert(0, os.getcwd())
+    prepare_data = getattr(import_module(mod), method)
 
     log.info(f"Running on:     {args['remote']}")
     log.info(f"Start:          {args['start']}")
@@ -289,6 +271,23 @@ def recompute(args):
     else:
         restart = False
 
+    SETTINGS = {}
+    for r in args["remote"]:
+        user = args["user"][args["remote"].index(r)]
+        max_jobs = args["max_jobs"][args["remote"].index(r)]
+        if r == "aurel":
+            SETTINGS[r] = (
+                {
+                    "max_jobs": max_jobs,
+                    "remote_dir": f"/gpfs/fastscratch/{user}/recompute/",
+                },
+            )
+        else:
+            SETTINGS[r] = {
+                "max_jobs": max_jobs,
+                "remote_dir": f"/home/{user}/Raid/recompute/",
+            }
+
     if restart:
         r = Recompute.from_json(
             args["remote"],
@@ -296,27 +295,11 @@ def recompute(args):
             args["start"],
             args["end"],
             recompute_failed=args["failed_recompute"],
-             dump_file=DUMP_FILE,
+            remote_settings=SETTINGS,
+            dump_file=DUMP_FILE,
             threaded=args["threaded"],
         )
     else:
-        SETTINGS = {}
-        for r in args["remote"]:
-            user = args["user"][args["remote"].index(r)]
-            max_jobs = args["max_jobs"][args["remote"].index(r)]
-            if r == "aurel":
-                SETTINGS[r] = (
-                    {
-                        "max_jobs": max_jobs,
-                        "remote_dir": f"/gpfs/fastscratch/{user}/recompute/",
-                    },
-                )
-            else:
-                SETTINGS[r] = {
-                    "max_jobs": max_jobs,
-                    "remote_dir": f"/home/{user}/Raid/recompute/",
-                }
-
         r = Recompute(
             args["remote"],
             args["user"],
@@ -336,6 +319,7 @@ def recompute(args):
         KP_spacing=CVD,
     )
 
+    log.info("loading list of ASE structures to recompute")
     atoms = prepare_data()
     log.info(f"got {len(atoms)} structures")
     r.get_job_data(atoms)
@@ -345,4 +329,4 @@ def recompute(args):
 
 
 if __name__ == "__main__":
-    main()
+    recompute({})

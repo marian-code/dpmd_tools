@@ -9,6 +9,7 @@ of ase.Atoms objects.
 import itertools
 import logging
 import re
+from abc import abstractmethod
 from collections import Counter, defaultdict, deque
 from contextlib import nullcontext
 from datetime import datetime, timedelta
@@ -18,16 +19,8 @@ from shutil import move, rmtree
 from subprocess import CompletedProcess
 from threading import Lock, Thread
 from time import sleep
-from typing import (
-    TYPE_CHECKING,
-    ContextManager,
-    Deque,
-    Dict,
-    List,
-    Optional,
-    Tuple,
-    Union,
-)
+from typing import (TYPE_CHECKING, ContextManager, Deque, Dict, List, Optional,
+                    Tuple, Union)
 
 from ase.atoms import Atoms
 from dpmd_tools.recompute.json_serializer import Job, deserialize, serialize
@@ -46,6 +39,7 @@ if TYPE_CHECKING:
         "CDATA",
         {
             "conn": SSHConnection,
+            "user": str,
             "name": str,
             "status": List[str],
             "submit": str,
@@ -143,12 +137,20 @@ class RemoteBatchRun:
                     f"-u {u}",
                 ]
                 JOB_SUBMIT = "/usr/bin/llsubmit"
+            elif h == "local":
+                JOB_STATUS = [""]
+                JOB_SUBMIT = "bash"
             else:
                 JOB_STATUS = ["/opt/pbs/bin/qstat"]
                 JOB_SUBMIT = "/opt/pbs/bin/qsub"
 
             self.c[h] = {
-                "conn": Connection.get(h, quiet=True, local=False, thread_safe=True),
+                "conn": Connection.get(
+                    h,
+                    quiet=True,
+                    local=True if h == "local" else False,
+                    thread_safe=True,
+                ),
                 "name": h,
                 "user": u,
                 "status": JOB_STATUS,
@@ -172,10 +174,7 @@ class RemoteBatchRun:
         self.computed, self.failed = self.get_finished_jobs(work_dir)
 
     # * Mandatory override in subclass *************************************************
-    def set_constants(self, *args, **kwargs):
-        """Run this after init so it can set any constants wihout overriding init."""
-        raise NotImplementedError("reimplement in subclass")
-
+    @abstractmethod
     def postprocess_job(self, job: Job) -> Optional[float]:
         """Parse job output files and return runtime if job was succesfull or None if not.
 
@@ -184,6 +183,7 @@ class RemoteBatchRun:
         """
         raise NotImplementedError("Reimplement in subclass")
 
+    @abstractmethod
     def prepare_calc(
         self, index: int, calc_dir: Path, server: str, atoms: Atoms
     ) -> Tuple[str, str]:
@@ -195,6 +195,15 @@ class RemoteBatchRun:
         """
         raise NotImplementedError("reimplement in subclass")
 
+    # * Optional override in subclass **************************************************
+    def set_constants(self, *args, **kwargs):
+        """Run this after init so it can set any constants wihout overriding init."""
+        raise NotImplementedError("reimplement in subclass")
+
+    def set_job_attr(self, job: Job):
+        """Set additional job attributes before it is submitted."""
+        pass
+
     # * persist ************************************************************************
     @classmethod
     def from_json(
@@ -204,6 +213,7 @@ class RemoteBatchRun:
         start: int,
         stop: int,
         recompute_failed: bool,
+        remote_settings: dict,
         dump_file: Path,
         threaded: bool = False,
     ) -> "RemoteBatchRun":
@@ -221,7 +231,8 @@ class RemoteBatchRun:
 
         data = deserialize(dump_file, hosts)
 
-        remote_settings = data.pop("remote_settings")
+        rs = data.pop("remote_settings")
+        rs.update(remote_settings)
         work_dir = dump_file.parent
 
         cls.continue_data = data
@@ -231,7 +242,7 @@ class RemoteBatchRun:
             start,
             stop,
             recompute_failed,
-            remote_settings,
+            rs,
             work_dir,
             dump_file,
             threaded=threaded,
@@ -337,6 +348,8 @@ class RemoteBatchRun:
             except IndexError:
                 log.warning("Couldn't get job id")
                 jid = None
+        elif server == "local":
+            jid = None
         else:
             jid = out.stdout.split(".")[0]
 
@@ -374,9 +387,13 @@ class RemoteBatchRun:
             )
             (prepare_dir / "pbs.job").write_text(job_script)
 
-            submit_dir = c["remote_dir"] / f"{prepare_dir.name}"
-
-            c["conn"].shutil.upload_tree(prepare_dir, submit_dir, quiet=True)
+            #  for local we don't need to copy
+            if server == "local":
+                submit_dir = prepare_dir
+            else:
+                
+                submit_dir = c["remote_dir"] / f"{prepare_dir.name}"
+                c["conn"].shutil.upload_tree(prepare_dir, submit_dir, quiet=True)
 
             log.info(f"Scheduling job on {server}")
 
@@ -390,9 +407,6 @@ class RemoteBatchRun:
             # record job name
             job.name = job_name
 
-            # record scan
-            job.SCAN = self.SCAN
-
             #  record start time
             job.submit_time = datetime.now()
 
@@ -401,6 +415,9 @@ class RemoteBatchRun:
 
             # set retry attempts
             job.retry = False
+
+            # record subclass specific attributed for job
+            self.set_job_attr(job)
 
             # put job data in connections dict
             with self._LOCK:
@@ -440,10 +457,14 @@ class RemoteBatchRun:
             return None
 
     # *get jobs back *******************************************************************
-    def _download_job(self, conn: SSHConnection, job: Job):
+    def _download_job(self, server: str, conn: SSHConnection, job: Job):
+
+        #  no need to download if we are on
+        if server == "local":
+            return True
 
         # TODO ideally skip WAVECAR too
-        # on occasion fils do 3 tries
+        # on occasion fails, do 3 tries
         for _ in range(3):
             try:
                 conn.shutil.download_tree(
@@ -451,7 +472,7 @@ class RemoteBatchRun:
                     self.WD / job.running_dir.name,
                     exclude="*POTCAR",
                     quiet=True,
-                    remove_after=True,
+                    remove_after=True,  # TODO problem with permission with PBS created dirs, they cannot be removed
                 )
             except OSError as e:
                 log.debug(f"error when downloading job {job.index}: {e}")
@@ -474,7 +495,7 @@ class RemoteBatchRun:
 
             log.info(f"Retrieving finished job {job.index} from {server}")
 
-            if not self._download_job(data["conn"], job):
+            if not self._download_job(server, data["conn"], job):
                 continue
             else:
                 calc_time = self.postprocess_job(job)
@@ -493,7 +514,7 @@ class RemoteBatchRun:
                 with self._LOCK:
                     self.total_calc_time += calc_time
                     self.calc_times_norm.append(calc_time / job.atoms_size)
-                    self.total_time += job.run_time
+                    self.total_time += job.run_time / job.atoms_size
 
     def _get_finished_jobs(self, done_jobs: Dict[str, Deque[int]]):
 
@@ -547,6 +568,10 @@ class RemoteBatchRun:
         """Take care of stuck/failed to submit jobs."""
         log.info("Running sheduled job housekeeping to clean up stuck jobs")
         for server, data in self.c.items():
+
+            if server == "local":
+                log.debug("skipping housekeeping for local jobs")
+                continue
 
             out = self._job_status(server)
 
@@ -617,14 +642,12 @@ class RemoteBatchRun:
                 self._housekeeping_counter += 1
 
             self._update_runtimes()
-            if self._housekeeping_counter % self.HOUSEKEEPING_INTERVAL == 0:
+            if self._housekeeping_counter != 0 and self._housekeeping_counter % self.HOUSEKEEPING_INTERVAL == 0:
                 self._housekeeping()
 
             # sleep 5 seconds before next check
             sleep(1)
             wait_time += 1
-
-        print(" " * 100)
 
     def loop(self):
         """Run computational loop."""

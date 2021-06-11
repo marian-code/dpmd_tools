@@ -17,10 +17,19 @@ import plotly.graph_objects as go
 from colorama import Fore, init
 from sklearn.cluster import MiniBatchKMeans
 from tqdm import tqdm
+from atexit import register, unregister
+from sys import exit
+import signal
 
 
 init(autoreset=True)
 WORK_DIR = Path.cwd()
+
+
+def ctrl_exit_handler(signal_received, frame):
+    # Handle any cleanup here
+    print("\nSIGINT or CTRL-C detected. Exiting gracefully")
+    exit(0)
 
 
 class KmeansRunner:
@@ -58,11 +67,15 @@ class KmeansRunner:
                 f"{Fore.GREEN}Training cluster representation from file: "
                 f"{Fore.RESET}{fp.name}"
             )
+            print(
+                "convergence.html file will be ploted every 1000 iterations in run "
+                "directory so you can asses convergence"
+            )
             data = np.load(fp)
 
             job = tqdm(range(self.passes), ncols=130, total=self.passes)
             old_inertia = 1e23
-            for _ in job:
+            for i in job:
 
                 idx = np.random.randint(data.shape[0], size=self.batch_size)
                 feed_data = data[idx, :]
@@ -84,6 +97,9 @@ class KmeansRunner:
                         "passes match with accuracy 1e-6"
                     )
                     break
+
+                if i % 1000 == 0:
+                    self.plot_convergence()
 
     def run_all(self):
 
@@ -119,7 +135,7 @@ class KmeansRunner:
                 x=n[:-1],
                 y=np.ediff1d(inertia),
                 mode="lines",
-                name="cluster abs inertia",
+                name="cluster abs inertia difference",
             )
         )
         fig.update_layout(
@@ -185,7 +201,14 @@ def assign_clusters(args: dict):
         int(args["batch_size"]),
         int(args["n_clusters"]),
     )
+    signal.signal(signal.SIGINT, ctrl_exit_handler)
+    register(finalize, kmeans)
     kmeans.run_iter()
+    unregister(finalize)
+    finalize(kmeans)
+
+def finalize(kmeans: KmeansRunner):
+
     kmeans.plot_convergence()
 
     energies, volumes = get_en_vol(WORK_DIR)
