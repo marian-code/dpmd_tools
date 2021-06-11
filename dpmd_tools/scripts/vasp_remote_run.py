@@ -1,12 +1,12 @@
 from io import TextIOBase
+from pathlib import Path
 import sys
-from typing import Any, Dict
+from colorama import Fore
 
 from ssh_utilities import Connection
 
 
 class ProxyStream:
-
     def __init__(self, stream: TextIOBase, filename: str) -> None:
         self.file = open(filename, "w")
         self.stream = stream
@@ -20,29 +20,47 @@ class ProxyStream:
         self.file.close()
 
 
-def run_vasp(args: Dict[str, Any]):
+def run_singlepoint(*, server: str, local: Path, remote: Path, what: str, command: str = None):
 
-    with Connection(args["server"], local=False, quiet=True) as c:
+    if server == "fock":
+        VASP = "/home/s/Software/vasp.5.4.4_mpi_TS/bin/vasp_std"
+    else:
+        VASP = "/home/s/Software/VASP/intel-mpi-TS-HI/vasp-5.4.4-TS-HI/bin/vasp_std"
 
-        c.os.makedirs(args["remote"], exist_ok=True, parents=True)
+    if server in ("kohn", "planck"):
+        CORES = "16"
+    else:
+        CORES = "12"
+
+    QE = "/home/toth/Software/qe.6.3.0/bin/pw.x < relax.in"
+
+    with Connection(server, local=False, quiet=True) as c:
+
+        c.os.makedirs(remote, exist_ok=True, parents=True)
 
         print("uploading job files")
-        FILES = ("INCAR", "KPOINTS", "POSCAR", "POTCAR")
-        for f in FILES:
+        if what == "QE":
+            code = QE
             c.shutil.copy2(
-                args["local"] / f,
-                args["remote"] / f,
+                local / "relax.in",
+                remote / "relax.in",
                 direction="put",
                 follow_symlinks=False,
             )
-
-        if args["server"] == "fock":
-            VASP = "/home/s/Software/vasp.5.4.4_mpi_TS/bin/vasp_std"
         else:
-            VASP = "/home/s/Software/VASP/intel-mpi-TS-HI/vasp-5.4.4-TS-HI/bin/vasp_std"
+            code = VASP
 
-        print("running VASP...")
-        print("***********************************************************************")
+            FILES = ("INCAR", "KPOINTS", "POSCAR", "POTCAR")
+            for f in FILES:
+                c.shutil.copy2(
+                    local / f,
+                    remote / f,
+                    direction="put",
+                    follow_symlinks=False,
+                )
+
+        print(f"running {what}...")
+        print(f"{Fore.GREEN}**********************************************************")
         c.subprocess.run(
             [
                 "source",
@@ -52,20 +70,22 @@ def run_vasp(args: Dict[str, Any]):
                 "&&",
                 "/home/s/bin/mpirun",
                 "-np",
-                "12",
-                VASP,
+                CORES,
+                code,
             ],
             suppress_out=True,
             quiet=True,
-            stdout=ProxyStream(sys.stdout, "output.txt"),
-            stderr=ProxyStream(sys.stderr, "error.txt"),
-            cwd=args["remote"],
+            stdout=ProxyStream(
+                sys.stdout, local / "relax.out" if what == "QE" else local / "output.txt"
+            ),
+            stderr=ProxyStream(sys.stderr, local / "error.txt"),
+            cwd=remote,
             encoding="utf-8",
         )
-        print("***********************************************************************")
+        print(f"{Fore.BLUE}**********************************************************")
         print("done")
 
         print("downloading results")
         c.shutil.download_tree(
-            args["remote"], args["local"], exclude="*WAVECAR", quiet=True
+            remote, local, exclude="*WAVECAR", quiet=True
         )
