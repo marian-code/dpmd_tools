@@ -33,7 +33,7 @@ log = logging.getLogger(__name__)
 
 
 def postprocess_args(args: dict) -> dict:
-
+    """Command line arguments post-process and expansion."""
     if len(args["user"]) == 1:
         args["user"] = args["user"] * len(args["remote"])
 
@@ -47,7 +47,7 @@ def postprocess_args(args: dict) -> dict:
 class Recompute(RemoteBatchRun):
     """Class that encapsulates all the remote server analyse logic."""
 
-    def set_constants(
+    def set_constants(  # type: ignore
         self,
         *,
         scan: bool,
@@ -271,6 +271,23 @@ def recompute(args):
     else:
         restart = False
 
+    SETTINGS = {}
+    for r in args["remote"]:
+        user = args["user"][args["remote"].index(r)]
+        max_jobs = args["max_jobs"][args["remote"].index(r)]
+        if r == "aurel":
+            SETTINGS[r] = (
+                {
+                    "max_jobs": max_jobs,
+                    "remote_dir": f"/gpfs/fastscratch/{user}/recompute/",
+                },
+            )
+        else:
+            SETTINGS[r] = {
+                "max_jobs": max_jobs,
+                "remote_dir": f"/home/{user}/Raid/recompute/",
+            }
+
     if restart:
         r = Recompute.from_json(
             args["remote"],
@@ -278,27 +295,11 @@ def recompute(args):
             args["start"],
             args["end"],
             recompute_failed=args["failed_recompute"],
+            remote_settings=SETTINGS,
             dump_file=DUMP_FILE,
             threaded=args["threaded"],
         )
     else:
-        SETTINGS = {}
-        for r in args["remote"]:
-            user = args["user"][args["remote"].index(r)]
-            max_jobs = args["max_jobs"][args["remote"].index(r)]
-            if r == "aurel":
-                SETTINGS[r] = (
-                    {
-                        "max_jobs": max_jobs,
-                        "remote_dir": f"/gpfs/fastscratch/{user}/recompute/",
-                    },
-                )
-            else:
-                SETTINGS[r] = {
-                    "max_jobs": max_jobs,
-                    "remote_dir": f"/home/{user}/Raid/recompute/",
-                }
-
         r = Recompute(
             args["remote"],
             args["user"],
@@ -318,6 +319,7 @@ def recompute(args):
         KP_spacing=CVD,
     )
 
+    log.info("loading list of ASE structures to recompute")
     atoms = prepare_data()
     log.info(f"got {len(atoms)} structures")
     r.get_job_data(atoms)
@@ -327,4 +329,4 @@ def recompute(args):
 
 
 if __name__ == "__main__":
-    main()
+    recompute({})

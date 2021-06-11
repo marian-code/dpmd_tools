@@ -270,6 +270,26 @@ def rings(args):
     else:
         restart = False
 
+    SETTINGS = {}
+    for r in args["remote"]:
+        user = args["user"][args["remote"].index(r)]
+        max_jobs = args["max_jobs"][args["remote"].index(r)]
+        if r == "aurel":
+            SETTINGS[r] = {
+                "max_jobs": max_jobs,
+                "remote_dir": f"/gpfs/fastscratch/{user}/analyse/",
+            }
+        elif r == "local":
+            SETTINGS[r] = {
+                "max_jobs": max_jobs,
+                "remote_dir": str(Path.cwd().resolve()),
+            }
+        else:
+            SETTINGS[r] = {
+                "max_jobs": max_jobs,
+                "remote_dir": f"/home/{user}/Raid/analyse/",
+            }
+
     if restart:
         r = Analyse.from_json(
             args["remote"],
@@ -277,30 +297,11 @@ def rings(args):
             args["start"],
             args["end"],
             recompute_failed=args["failed_recompute"],
+            remote_settings=SETTINGS,
             dump_file=DUMP_FILE,
             threaded=args["threaded"],
         )
     else:
-        SETTINGS = {}
-        for r in args["remote"]:
-            user = args["user"][args["remote"].index(r)]
-            max_jobs = args["max_jobs"][args["remote"].index(r)]
-            if r == "aurel":
-                SETTINGS[r] = {
-                    "max_jobs": max_jobs,
-                    "remote_dir": f"/gpfs/fastscratch/{user}/analyse/",
-                }
-            elif r == "local":
-                SETTINGS[r] = {
-                    "max_jobs": max_jobs,
-                    "remote_dir": str(Path.cwd().resolve()),
-                }
-            else:
-                SETTINGS[r] = {
-                    "max_jobs": max_jobs,
-                    "remote_dir": f"/home/{user}/Raid/analyse/",
-                }
-
         r = Analyse(
             args["remote"],
             args["user"],

@@ -213,6 +213,7 @@ class RemoteBatchRun:
         start: int,
         stop: int,
         recompute_failed: bool,
+        remote_settings: dict,
         dump_file: Path,
         threaded: bool = False,
     ) -> "RemoteBatchRun":
@@ -230,7 +231,8 @@ class RemoteBatchRun:
 
         data = deserialize(dump_file, hosts)
 
-        remote_settings = data.pop("remote_settings")
+        rs = data.pop("remote_settings")
+        rs.update(remote_settings)
         work_dir = dump_file.parent
 
         cls.continue_data = data
@@ -240,7 +242,7 @@ class RemoteBatchRun:
             start,
             stop,
             recompute_failed,
-            remote_settings,
+            rs,
             work_dir,
             dump_file,
             threaded=threaded,
@@ -389,6 +391,7 @@ class RemoteBatchRun:
             if server == "local":
                 submit_dir = prepare_dir
             else:
+                
                 submit_dir = c["remote_dir"] / f"{prepare_dir.name}"
                 c["conn"].shutil.upload_tree(prepare_dir, submit_dir, quiet=True)
 
@@ -461,7 +464,7 @@ class RemoteBatchRun:
             return True
 
         # TODO ideally skip WAVECAR too
-        # on occasion fils do 3 tries
+        # on occasion fails, do 3 tries
         for _ in range(3):
             try:
                 conn.shutil.download_tree(
@@ -469,7 +472,7 @@ class RemoteBatchRun:
                     self.WD / job.running_dir.name,
                     exclude="*POTCAR",
                     quiet=True,
-                    remove_after=True,  # TODO problem with persision with PBS created dirs, they cannot be removed
+                    remove_after=True,  # TODO problem with permission with PBS created dirs, they cannot be removed
                 )
             except OSError as e:
                 log.debug(f"error when downloading job {job.index}: {e}")
@@ -511,7 +514,7 @@ class RemoteBatchRun:
                 with self._LOCK:
                     self.total_calc_time += calc_time
                     self.calc_times_norm.append(calc_time / job.atoms_size)
-                    self.total_time += job.run_time
+                    self.total_time += job.run_time / job.atoms_size
 
     def _get_finished_jobs(self, done_jobs: Dict[str, Deque[int]]):
 
