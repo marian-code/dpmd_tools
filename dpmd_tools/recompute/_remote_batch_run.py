@@ -47,7 +47,6 @@ if TYPE_CHECKING:
             "jobs": List[Job],
             "remote_dir": SSHPath,
         },
-        total=False,
     )
 
 JOB_ID = re.compile(r"(?:\"|\')(\S+)(?:\"|\')")
@@ -595,7 +594,7 @@ class RemoteBatchRun:
                         f"Job {job.index} on {server} did not complete even after "
                         f"resubmission, downloading and marking as failed"
                     )
-                    self._download_job(data["conn"], job)
+                    self._download_job(server, data["conn"], job)
                     delete_jobs.append(i)
                 # if all contitions pass this means that the job is somehow stuck and
                 # is blocking the queue try to resubmit it

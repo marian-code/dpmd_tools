@@ -8,7 +8,7 @@ from dpmd_tools.cluster import assign_clusters, take_prints
 from dpmd_tools.compare_graph import compare_ev
 from dpmd_tools.system import MultiSystemsVar
 from dpmd_tools.to_deepmd import to_deepmd
-from dpmd_tools.scripts import upload
+from dpmd_tools.scripts import upload, analyse_mtd
 from dpmd_tools.recompute import recompute, rings
 from dpmd_tools.scripts import run_singlepoint
 
@@ -98,6 +98,14 @@ def main():
     )
     singlepoint_parser(run_singlepoint_parser)
 
+    # * analyse-mtd ********************************************************************
+    analyse_mtd_p = sp.add_parser(
+        "analyse-mtd",
+        help="upload dataset to remote server dir and/or local dir",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    analyse_mtd_parser(analyse_mtd_p)
+
     args = p.parse_args()
     dict_args = vars(args)
 
@@ -117,6 +125,8 @@ def main():
         rings(dict_args)
     elif args.command == "run-singlepoint":
         run_singlepoint(**dict_args)
+    elif args.command == "analyse-mtd":
+        analyse_mtd(**dict_args)
     elif args.command == None:
         p.print_help()
     else:
@@ -632,6 +642,17 @@ def get_remote_parser():
     )
 
     return p
+
+
+def analyse_mtd_parser(parser):
+    
+    parser.add_argument(
+        "-ev",
+        "--ev-only",
+        help="output only ev file",
+        default=False,
+        action="store_true",
+    )
 
 
 if __name__ == "__main__":
