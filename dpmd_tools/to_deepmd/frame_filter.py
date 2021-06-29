@@ -230,7 +230,6 @@ class ApplyConstraint:
         pressure_Gpa = np.trace(
             self.system["virials"] / v_pref / volumes[:, None, None], axis1=1, axis2=2
         )
-        print(pressure_Gpa)
 
         s = self._where((bracket[0] < pressure_Gpa) & (pressure_Gpa < bracket[1]))
 
@@ -350,6 +349,11 @@ class ApplyConstraint:
         s = self._where((bracket[0] < f_std_max) & (f_std_max < bracket[1]))
 
         self._record_select(s)
+
+    def previous_iteration(self):
+        # this will ensure that even if no selection criteria was applied
+        # the structures for previous selection iterations will be selected
+        self._record_select(np.array([], dtype=int))
 
     def apply(self) -> MaskedSystem:
 
