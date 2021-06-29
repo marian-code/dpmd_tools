@@ -19,7 +19,7 @@ class Job:
     index: int
     atoms_size: int
     id: Optional[str]
-    running_dir: Union["SSHPath", Path],
+    running_dir: Union["SSHPath", Path]
     name: str
     SCAN: bool
     submit_time: datetime

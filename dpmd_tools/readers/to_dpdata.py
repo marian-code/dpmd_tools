@@ -7,17 +7,16 @@ Alwys append new methods to __all__ variable!
 """
 
 import gzip
+import re
 import shutil
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Iterator, List, Optional, Tuple
-from tempfile import TemporaryDirectory
-import re
-import pandas as pd
-import numpy as np
-from colorama import Fore
 
-from dpmd_tools.system import MaskedSystem, LmpDevSystem, data
+import numpy as np
+import pandas as pd
+from colorama import Fore
+from dpmd_tools.system import LmpDevSystem, MaskedSystem
 
 __all__ = [
     "read_xtalopt_dir",
@@ -92,7 +91,7 @@ def read_lmp_traj_dev(
     dev_force: Tuple[float, float],
     **kwargs,
 ) -> List[LmpDevSystem]:
-    from py_extract_frames import parse_traj, copy_traj
+    from py_extract_frames import copy_traj, parse_traj
 
     header = re.compile(r"#\s*step\s*max_devi_e\s*min_devi_e\s*avg_devi_e\s*max_devi_f")
 
