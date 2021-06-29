@@ -72,20 +72,24 @@ class KmeansRunner:
                 "directory so you can asses convergence"
             )
             data = np.load(fp)
+            n_samples = data.shape[0]
 
             job = tqdm(range(self.passes), ncols=130, total=self.passes)
             old_inertia = 1e23
             for i in job:
 
-                idx = np.random.randint(data.shape[0], size=self.batch_size)
-                feed_data = data[idx, :]
-                # normalize to make cosine similarity equal to
-                # euclidean l2 distance measure
-                # https://stats.stackexchange.com/questions/72978/vector-space-model-cosine-similarity-vs-euclidean-distance
-                feed_data /= np.linalg.norm(feed_data, axis=1)[:, None]
-                # TODO maybe norm ?
-                # data -= np.mean(data, axis=0)
-                # data /= np.std(data, axis=0)
+                # if we take all data in one batch there is no need to do this in
+                # every loop pass
+                if i == 0 or n_samples > self.batch_size:
+                    idx = np.random.randint(n_samples, size=self.batch_size)
+                    feed_data = data[idx, :]
+                    # normalize to make cosine similarity equal to
+                    # euclidean l2 distance measure
+                    # https://stats.stackexchange.com/questions/72978/vector-space-model-cosine-similarity-vs-euclidean-distance
+                    feed_data /= np.linalg.norm(feed_data, axis=1)[:, None]
+                    # TODO maybe norm ?
+                    # data -= np.mean(data, axis=0)
+                    # data /= np.std(data, axis=0)
                 self.kmeans.partial_fit(feed_data)
                 self.inertia.append(self.kmeans.inertia_ / self.batch_size)
                 job.set_description(
