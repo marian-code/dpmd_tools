@@ -211,7 +211,7 @@ def to_deepmd_parser(parser: argparse.ArgumentParser):
         type=str,
         help="if not "
         "specified default function will be used. Otherwise you can input "
-        "python code as string that outputs list of 'Path' objects. The "
+        "python code as string that outputs list/generator of 'Path' objects. The "
         "Path object is already imported for you. Example: "
         "-gp '[Path.cwd() / \"OUTCAR\"]'",
     )
@@ -246,13 +246,22 @@ def to_deepmd_parser(parser: argparse.ArgumentParser):
         "-m",
         "--mode",
         default="new",
-        choices=("new", "append"),
+        choices=("new", "append", "merge"),
         type=str,
-        help="choose data export mode in append "
-        "structures will be appended to ones already chosen for "
-        "training in previous iteration. In append mode do not specify the "
-        "-gp/--get-paths arguments and start the script in deepmd_data dir, "
-        "in this mode only dpmd_raw data format is supported",
+        help="choose data export mode. In append mode structures will be appended to "
+        "ones already chosen for training in previous iteration. In append mode do not "
+        "specify the -gp/--get-paths arguments and start the script in deepmd_data "
+        "dir, in this mode only dpmd_raw data format is supported. In merge mode "
+        "use -gp/--get-paths argument to specify all directories at once. You must "
+        "also specify -md/--merge-dir argument. In this mode no selection criteria are "
+        "applied, systems are only read in, merged and output to specified dir"
+    )
+    parser.add_argument(
+        "-md",
+        "--merge-dir",
+        default=Path.cwd(),
+        type=Path,
+        help="target dir where read in systems will be merged"
     )
     parser.add_argument(
         "-f",
@@ -320,7 +329,8 @@ def to_deepmd_parser(parser: argparse.ArgumentParser):
         default="cf",
         choices=COLLECTOR_CHOICES,
         help="choose data collector callable. 'cf' is parallel based on "
-        "concurrent.futures and loky",
+        "concurrent.futures and loky. Use debug loader if loading fails for some "
+        "reason and you want to see the the whole error tracebacks",
     )
     parser.add_argument(
         "-fi",

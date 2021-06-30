@@ -63,9 +63,9 @@ def upload(args: dict):
     print("\nuploading ...")
     print("------------------------------------------------------------------")
     for src, dst, local_dst in dirs_mapping:
-        if dst:
-            dst.mkdir(exist_ok=True, parents=True)
-            c.shutil.upload_tree(src, dst, remove_after=False, quiet="stats")
+        #if dst:
+        #    dst.mkdir(exist_ok=True, parents=True)
+        #    c.shutil.upload_tree(src, dst, remove_after=False, quiet="stats")
         if local_dst:
             try:
                 print(f"\ncopying to local: {local_dst.name}... ", end="")

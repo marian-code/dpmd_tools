@@ -236,6 +236,10 @@ def to_deepmd(args: dict):  # NOSONAR
         DPMD_DATA = WORK_DIR
         DPMD_DATA_ALL = DPMD_DATA / "all"
         DPMD_DATA_TRAIN = DPMD_DATA / "for_train"
+    elif args["mode"] == "merge":
+        DPMD_DATA = WORK_DIR
+        DPMD_DATA_ALL = None
+        DPMD_DATA_TRAIN = args["merge_dir"]
 
     if args["get_paths"]:
         _locals = {}
@@ -248,7 +252,7 @@ def to_deepmd(args: dict):  # NOSONAR
             _locals,
         )
         try:
-            paths = _locals["paths"]
+            paths = list(_locals["paths"])
         except KeyError:
             raise RuntimeError(f"your get_paths script crashed: {_locals['exception']}")
     elif args["mode"] == "append":
@@ -303,7 +307,10 @@ def to_deepmd(args: dict):  # NOSONAR
     for name, system in multi_sys.items():
         lprint(f" - {name:6} -> {len(system):4} structures")
 
-    lprint(f"{Fore.GREEN}filtering data ----------------------------------------------")
+    if args["mode"] == "merge":
+        lprint(f"{Fore.GREEN}merging data ----------------------------------------------")
+    else:
+        lprint(f"{Fore.GREEN}filtering data ----------------------------------------------")
 
     # here we will store the filtered structures that we want to use for
     # training
@@ -348,8 +355,11 @@ def to_deepmd(args: dict):  # NOSONAR
                 max_n=args["max_select"],
             )
 
+        if args["mode"] == "merge":
+            constraints.previous_iteration()
+
         # if dev_e or dev_f is used system class is mutated to other base with new
-        # attributes taht are needed for plotting
+        # attributes that are needed for plotting
         if constraints.system_mutated:
             multi_sys[k] = constraints.system
 
@@ -382,9 +392,8 @@ def to_deepmd(args: dict):  # NOSONAR
     if args["save"] == "no":
         lprint(f"{Fore.YELLOW}You choose not to save changes, exiting ... ")
         sys.exit()
-
     # if result is satisfactory continue, else abort
-    if args["save"] == "input":
+    elif args["save"] == "input":
         if input("Continue and write data to disk? [ENTER]") != "":  # NOSONAR
             lprint("selection run abborted, changes to dataset were not written")
             sys.exit()
@@ -393,14 +402,19 @@ def to_deepmd(args: dict):  # NOSONAR
     chosen_sys.shuffle()
 
     # create dirs
-    DPMD_DATA_ALL.mkdir(exist_ok=True, parents=True)
+    if args["mode"] != "merge":
+        DPMD_DATA_ALL.mkdir(exist_ok=True, parents=True)
     DPMD_DATA_TRAIN.mkdir(exist_ok=True, parents=True)
 
     lprint(f"{Fore.GREEN}saving data for training ------------------------------------")
     chosen_sys.to_deepmd_npy(DPMD_DATA_TRAIN, set_size="auto")
 
-    lprint(f"{Fore.GREEN}saving all data for further use -----------------------------")
-    multi_sys.to_deepmd_raw(DPMD_DATA_ALL, True if args["mode"] == "append" else False)
+    if args["mode"] != "merge":
+        lprint(f"{Fore.GREEN}saving all data for further use -----------------------------")
+        multi_sys.to_deepmd_raw(DPMD_DATA_ALL, True if args["mode"] == "append" else False)
 
-    lprint(f"data output to {DPMD_DATA}")
-    lprint.write()
+    if args["mode"] == "merge":
+        lprint(f"merged data to {DPMD_DATA_TRAIN}")
+    else:
+        lprint(f"data output to {DPMD_DATA}")
+        lprint.write()
