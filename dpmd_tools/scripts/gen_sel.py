@@ -1,4 +1,4 @@
-from numpy.core.defchararray import title
+from numpy.core.defchararray import array, title
 import plotly.graph_objects as go
 from pathlib import Path
 from dpdata import LabeledSystem
@@ -7,8 +7,15 @@ import numpy as np
 from itertools import zip_longest
 import plotly.express as px
 from PIL import ImageColor
+import pandas as pd
 
-COLOR = px.colors.qualitative.Dark24
+COLOR = px.colors.qualitative.Dark24 + px.colors.qualitative.Dark24
+MODELS_PER_GEN = 4
+
+
+def unique(sequence):
+    seen = set()
+    return [x for x in sequence if not (x in seen or seen.add(x))]
 
 
 def grouper(iterable, n, fillvalue=None):
@@ -17,6 +24,11 @@ def grouper(iterable, n, fillvalue=None):
 
 
 def get_std(cache_dirs):
+
+    if None in cache_dirs:
+        for c in cache_dirs:
+            print(f" - {c}")
+        raise FileNotFoundError("One or more expected cache dirs was not found")
 
     predictions = [LabeledSystem(c, fmt="deepmd/npy") for c in cache_dirs]
 
@@ -72,91 +84,103 @@ for j, d in enumerate(Path.cwd().glob("*")):
 
     d = d / "deepmd_data"
     if not d.is_dir() or len(list(d.glob("cache*"))) == 0:
+        print(f"{str(d):60} ... skipping")
         continue
-    print(d, "------------------------------")
+    print(f"{str(d):60} ... OK")
 
+    # list all cache directories
     cache_dirs = [c for c in d.glob("cache*")]
+    # sort according to generation: e.g. cache_ge_all_s1_4.pb --> generation 1
     cache_dirs.sort(key=lambda x: int(x.name.split("_")[3][1]))
+    # group by generation number
     iter_caches = groupby(cache_dirs, key=lambda x: int(x.name.split("_")[3][1]))
     mean = []
     std = []
+    generation = []
+    # key is generation number, and group contains cachce dirs
     for key, group in iter_caches:
         cache_dirs = list(group)
+        # sort cache dirs
         cache_dirs.sort(key=lambda x: int(x.stem.rsplit("_", 1)[-1]))
-        if len(cache_dirs) > 4:
-            cache_dirs = grouper(cache_dirs, 4)
-            mm = []
-            ss = []
-            for i, cd in enumerate(cache_dirs, 1):
-                print(f"{key}.{i}")
+        # iterate in chunks defined by constant
+        if len(cache_dirs) > MODELS_PER_GEN:
+            cache_dirs = grouper(cache_dirs, MODELS_PER_GEN)
+            for i, cd in enumerate(cache_dirs):
+                number = float(f"{key}.{i}")
                 m, s, size = get_std(cd)
-                mm.append(m)
-                ss.append(s)
-            mean.append(mm)
-            std.append(ss)
+                mean.append(m)
+                std.append(s)
+                generation.append(number)
         else:
-            print(key)
             m, s, size = get_std(cache_dirs)
             mean.append(m)
             std.append(s)
+            generation.append(float(key))
 
-    force_stats[d.parent.name] = np.vstack((np.array(mean), np.array(std)))
+    # create dictionary, eych entry contains dataframe with mean and std for
+    # each generation
+    force_stats[d.parent.name] = pd.DataFrame(
+        {"mean": mean, "std": std}, index=generation
+    )
+
+    # record system size so the weighted average can be computed
     system_sizes[d.parent.name] = size
     if j > 1000:  # for testing
         break
 
-m = max([s.shape[1] for s in force_stats.values()])
+# make one multiindex dataframe from distionary of individual dataframes
+force_stats = pd.concat(force_stats.values(), axis=1, keys=force_stats.keys())
+force_stats.fillna(method="backfill", inplace=True)
 
-for name, stats in force_stats.items():
-    diff = m - stats.shape[1]
-    force_stats[name] = np.hstack((np.zeros((2, diff)), stats))
+# ensure system sizes dict which is used to compute weighted average is
+# ordered in the same way as the dataframe
+system_sizes = {
+    name: system_sizes[name] for name in unique(force_stats.columns.get_level_values(0))
+}
 
-force_stats = dict(sorted(force_stats.items(), key=lambda x: x[0]))
-system_sizes = {k: system_sizes[k] for k in force_stats.keys()}
-
+# plot individual systems prediction error, iterate over system names in dataframe
+# which are sored in level 0 column labels
 fig = go.Figure()
-all_data = []
-all_error = []
-for (name, stats), c in zip(force_stats.items(), COLOR):
-    print(name, stats, system_sizes[name])
+for (name, stats), c in zip(force_stats.groupby(level=0, axis="columns"), COLOR):
+    stats = stats[name]
+    plot_one(
+        fig,
+        stats.index,
+        stats["mean"].to_numpy(),
+        stats["std"].to_numpy(),
+        name,
+        c,
+        system_sizes[name] / 10000,
+    )
 
-    x = []
-    data = []
-    error = []
-    for i in range(stats.shape[1]):
-        if isinstance(stats[0][i], list):
-            n = len(stats[0][i])
-            for j in range(0, n):
-                x.append(i + 1 + j / n)
-                data.append(stats[0][i][j])
-                error.append(stats[1][i][j])
-        else:
-            x.append(i + 1)
-            data.append(stats[0][i])
-            error.append(stats[1][i])
-
-    plot_one(fig, x, data, error, name, c, system_sizes[name]/10000)
-    all_data.append(data)
-    all_error.append(error)
-
-plot_one(
-    fig, x, np.mean(all_data, axis=0), np.mean(all_error, axis=0), "average", COLOR[-2], 2
-)
+# use cross section locator to select all columns with appropriate quantity
+# these are on sublevel 1. then do a men on these columns (column -> axis==1)
 plot_one(
     fig,
-    x,
-    np.average(all_data, weights=list(system_sizes.values()), axis=0),
-    np.average(all_error, weights=list(system_sizes.values()), axis=0),
+    force_stats.index,
+    force_stats.xs("mean", level=1, axis=1).mean(axis=1),
+    force_stats.xs("std", level=1, axis=1).mean(axis=1),
+    "average",
+    COLOR[-2],
+    2,
+)
+# again use cross section locator to select appropriate columns then multiply each
+# column by respective weight, after that sum and devide by weight total
+ss = system_sizes.values()
+plot_one(
+    fig,
+    force_stats.index,
+    force_stats.xs("mean", level=1, axis=1).multiply(ss).sum(axis=1) / sum(ss),
+    force_stats.xs("std", level=1, axis=1).multiply(ss).sum(axis=1) / sum(ss),
     "weighted average",
     COLOR[-1],
-    2
+    2,
 )
 fig.update_layout(
     title="Evolution of mean and std of prediction errors for sub-datasets",
     xaxis_title="Dataset append iteration (non-integer iterations correspond to "
     "different NN architectures in same iteration)",
-    yaxis_title="Mean of max of forces prediction error in sub-dataset [eV/A]"
+    yaxis_title="Mean of max of forces prediction error in sub-dataset [eV/A]",
 )
 
 fig.write_html("dev_force_evol.html", include_plotlyjs="cdn")
-
