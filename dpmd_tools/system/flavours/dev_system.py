@@ -40,10 +40,6 @@ class LmpDevSystem(MaskedSystem):
     has_dev_e: bool = True
     has_dev_f: bool = True
 
-    def __new__(cls, *args, **kwargs):
-        instance = super(LmpDevSystem, cls).__new__(cls)
-        return instance
-
     def _post_init(self, **kwargs):
         self.data["energies_std"] = kwargs["dev_energy"]
         self.data["forces_std"] = kwargs["dev_force"]
@@ -71,10 +67,6 @@ def DevESystem(  # NOSONAR
         _additional_arrays = Base._additional_arrays + ["energies_std"]
         has_dev_e: bool = True
 
-        def __new__(cls, *args, **kwargs):
-            instance = super(DevESystem, cls).__new__(cls)
-            return instance
-
     return DevESystem(data=data)
 
 
@@ -99,10 +91,6 @@ def DevFSystem(  # NOSONAR
         data: "DEV_DATA"
         _additional_arrays = Base._additional_arrays + ["forces_std"]
         has_dev_f: bool = True
-
-        def __new__(cls, *args, **kwargs):
-            instance = super(DevFSystem, cls).__new__(cls)
-            return instance
 
     return DevFSystem(data=data)
 
@@ -129,9 +117,5 @@ def DevEFSystem(  # NOSONAR
         _additional_arrays = Base._additional_arrays + ["forces_std", "energies_std"]
         has_dev_e: bool = True
         has_dev_f: bool = True
-
-        def __new__(cls, *args, **kwargs):
-            instance = super(DevEFSystem, cls).__new__(cls)
-            return instance
 
     return DevEFSystem(data=data)

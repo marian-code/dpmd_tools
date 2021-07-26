@@ -30,7 +30,7 @@ class BaseSystem(LabeledSystem):
 
     data: "_DATA"
     _additional_arrays: List[str] = []
-    # append mesages from class initialization when reading data and they will be
+    #  append mesages from class initialization when reading data and they will be
     # printed after data has completed loading
     load_messages: List[str] = []
 
@@ -61,7 +61,7 @@ class BaseSystem(LabeledSystem):
                 type_map=type_map,
                 begin=begin,
                 step=step,
-                data=data
+                data=data,
             )
         )
         self._post_init(**kwargs)
@@ -83,9 +83,7 @@ class BaseSystem(LabeledSystem):
 
     # * overriding methods *************************************************************
     def to_deepmd_npy(self, folder: Path, set_size: int = 5000, prec: Any = np.float32):
-        super(BaseSystem, self).to_deepmd_npy(
-            str(folder), set_size=set_size, prec=prec
-        )
+        super(BaseSystem, self).to_deepmd_npy(str(folder), set_size=set_size, prec=prec)
 
     def to_deepmd_raw(self, folder: Path):
         """Output to raw data format.
@@ -108,6 +106,8 @@ class BaseSystem(LabeledSystem):
 
     def append(self, system: "BaseSystem"):
         """Manipulates also arrays defined by additional_arrays beyond standard set."""
+
+        print("arrays", self._additional_arrays)
         if not isinstance(system, type(self)):
             raise TypeError(
                 f"The appending system is of wrong type, expected: "
@@ -116,11 +116,34 @@ class BaseSystem(LabeledSystem):
         else:
             super(BaseSystem, self).append(system)
             for a in self._additional_arrays:
-                self.data[a] = np.concatenate((self.data[a], system[a]), axis=0)
+
+                # for 2D sometimes the shapes do not match. This is problem in merge
+                # mode when one system has gone through more iterations of selection
+                #  than the other
+                if len(system.data[a].shape) >= 2:
+
+                    s1 = self.data[a].shape[1]
+                    s2 = system.data[a].shape[1]
+                    if s1 > s2:
+                        z = np.atleast_2d(np.zeros((system.data[a].shape[0], s1 - s2)))
+                        system.data[a] = np.concatenate((system.data[a], z), axis=1)
+                    if s1 < s2:
+                        z = np.atleast_2d(np.zeros((self.data[a].shape[0], s2 - s1)))
+                        self.data[a] = np.concatenate((self.data[a], z), axis=1)
+                    self.data[a] = np.concatenate(
+                        (self.data[a], system.data[a]), axis=0
+                    )
+                # for 1D
+                else:
+                    self.data[a] = np.concatenate(
+                        (self.data[a], system.data[a]), axis=0
+                    )
+
+                print(self.data[a].shape, system.data[a].shape)
 
     def sub_system(self, f_idx: Union[np.ndarray, int, slice]) -> "BaseSystem":
         """Manipulates also arrays defined by additional_arrays attribute.
-        
+
         The standard set is manimpulated by dpdata.
         """
         tmp_sys = super(BaseSystem, self).sub_system(f_idx)
@@ -150,6 +173,5 @@ class BaseSystem(LabeledSystem):
                 except Exception:
                     s += f"{k:20}: {v}\n"
 
-
-
         return s
+

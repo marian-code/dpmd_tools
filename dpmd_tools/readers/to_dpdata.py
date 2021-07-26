@@ -16,7 +16,7 @@ from typing import Iterator, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 from colorama import Fore
-from dpmd_tools.system import LmpDevSystem, MaskedSystem
+from dpmd_tools.system import LmpDevSystem, MaskedSystem, System
 
 __all__ = [
     "read_xtalopt_dir",
@@ -54,7 +54,7 @@ def read_xtalopt_dir(path: Path, **kwargs) -> List[MaskedSystem]:
             outcar = _extract(p, tempdir)
 
             if outcar:
-                systems.append(MaskedSystem(file_name=outcar, fmt="vasp/outcar"))
+                systems.append(System(file_name=outcar, fmt="vasp/outcar"))
 
     return systems
 
@@ -66,12 +66,12 @@ def read_vasp_dir(path: Path, **kwargs) -> List[MaskedSystem]:
 
 
 def read_vasp_file(outcar: Path, **kwargs) -> List[MaskedSystem]:
-    return [MaskedSystem(file_name=outcar, fmt="vasp/outcar")]
+    return [System(file_name=outcar, fmt="vasp/outcar")]
 
 
 
 def read_outcar_relax(outcar: Path, **kwargs) -> List[MaskedSystem]:
-    system = MaskedSystem(file_name=outcar, fmt="vasp/outcar")
+    system = System(file_name=outcar, fmt="vasp/outcar")
     return system.sub_system(-1)
 
 
@@ -79,7 +79,7 @@ def read_dpmd_raw(
     system_dir: Path, force_iteration: Optional[int] = None, **kwargs
 ) -> List[MaskedSystem]:
     return [
-        MaskedSystem(
+        System(
             file_name=system_dir, fmt="deepmd/raw", force_iteration=force_iteration
         )
     ]

@@ -167,14 +167,14 @@ class MultiSystemsVar(MultiSystems, Generic[_SYS_TYPE]):
 
             futures = tqdm(as_completed(future2data), ncols=100, total=len(paths))
             for future in futures:
-                path = future2data[future].name
-                futures.set_description(f"extracting: {path}")
+                path = future2data[future]
+                futures.set_description(f"extracting: {path.name}")
                 try:
                     systems: List[BaseSystem] = future.result()
                 except AllSelectedError as e:
                     futures.write(
-                        f"All structures from system {path} have already been selected,"
-                        f" skipping..."
+                        f"All structures from system {path.name} have already been "
+                        f"selected, skipping..."
                     )
                 except Exception as e:
                     futures.write(f"Error in {path}: {e}")

@@ -1,5 +1,6 @@
 from .data import MultiSystemsVar
-from .flavours import ClusteredSystem, MaskedSystem, SelectedSystem, LmpDevSystem
+from .flavours import (ClusteredSystem, LmpDevSystem, MaskedSystem,
+                       SelectedSystem, System)
 
 __all__ = [
     "ClusteredSystem",
@@ -7,4 +8,5 @@ __all__ = [
     "SelectedSystem",
     "MultiSystemsVar",
     "LmpDevSystem",
+    "System"
 ]

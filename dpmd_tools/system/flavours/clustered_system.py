@@ -6,6 +6,7 @@ import numpy as np
 from typing_extensions import TypedDict
 
 from .masked_system import MaskedSystem
+from .base import BaseSystem
 
 if TYPE_CHECKING:
 
@@ -39,10 +40,6 @@ class ClusteredSystem(MaskedSystem):
     data: "CLUST_DATA"
     has_clusters: bool = True
     _additional_arrays = ["used", "clusters"]
-
-    def __new__(cls, *args, **kwargs):
-        instance = super(ClusteredSystem, cls).__new__(cls)
-        return instance
 
     def _post_init(self, **kwargs):
         super(ClusteredSystem, self)._post_init(**kwargs)
