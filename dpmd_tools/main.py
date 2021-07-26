@@ -6,11 +6,10 @@ from ssh_utilities import Connection
 import dpmd_tools.readers.to_dpdata as readers
 from dpmd_tools.cluster import assign_clusters, take_prints
 from dpmd_tools.compare_graph import compare_ev
+from dpmd_tools.recompute import recompute, rings
+from dpmd_tools.scripts import analyse_mtd, copy_train, run_singlepoint, upload
 from dpmd_tools.system import MultiSystemsVar
 from dpmd_tools.to_deepmd import to_deepmd
-from dpmd_tools.scripts import upload, analyse_mtd
-from dpmd_tools.recompute import recompute, rings
-from dpmd_tools.scripts import run_singlepoint
 
 PARSER_CHOICES = [r.replace("read_", "") for r in readers.__all__]
 COLLECTOR_CHOICES = [
@@ -106,6 +105,14 @@ def main():
     )
     analyse_mtd_parser(analyse_mtd_p)
 
+    # * copy-train ********************************************************************
+    copy_train_p = sp.add_parser(
+        "copy-train",
+        help="upload dataset to remote server dir and/or local dir",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    copy_train_parser(copy_train_p)
+
     args = p.parse_args()
     dict_args = vars(args)
 
@@ -127,6 +134,8 @@ def main():
         run_singlepoint(**dict_args)
     elif args.command == "analyse-mtd":
         analyse_mtd(**dict_args)
+    elif args.command == "copy-train":
+        copy_train(**dict_args)
     elif args.command == None:
         p.print_help()
     else:
@@ -353,11 +362,14 @@ def to_deepmd_parser(parser: argparse.ArgumentParser):
     )
     parser.add_argument(
         "-w",
-        "--wait_for",
+        "--wait-for",
         type=str,
+        nargs="*",
         default=None,
-        help="wait for some file to be present typically frozen graph model and only "
-        "then start computation. Accepts path to file or dir",
+        help="wait for some file(s) to be present typically frozen graph model(s) and "
+        "only then start computation. Accepts path to file or dir, if argument is "
+        "'graphs' then files from --graphs argument are used. You can also input more "
+        "paths or use wildcards and shell patterns",
     )
 
 
@@ -655,13 +667,30 @@ def get_remote_parser():
 
 
 def analyse_mtd_parser(parser):
-    
+
     parser.add_argument(
         "-ev",
         "--ev-only",
         help="output only ev file",
         default=False,
         action="store_true",
+    )
+
+
+def copy_train_parser(parser):
+
+    parser.add_argument(
+        "-i",
+        "--input",
+        type=Path,
+        required=True,
+        help="choose directory from which will new train dir be created",
+    )
+    parser.add_argument(
+        "-o", "--output", type=Path, required=True, help="choose destination directory",
+    )
+    parser.add_argument(
+        "-c", "--control", type=str, required=True, help="choose training control file",
     )
 
 

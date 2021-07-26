@@ -1,8 +1,6 @@
 #!/opt/miniconda3/bin/python
 # PYTHON_ARGCOMPLETE_OK
-import argparse
-from typing import Dict, Sequence, Union
-import argcomplete
+from typing import Sequence
 from pathlib import Path
 import yaml
 import json
@@ -31,33 +29,7 @@ def suggest_control(prefix: str, parsed_args, **kwargs) -> Sequence[str]:
         return []
 
 
-def input_parser() -> Dict[str, Union[str, Path]]:
-
-    p = argparse.ArgumentParser(
-        description="make new training direstory from existing one",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-
-    p.add_argument(
-        "-i",
-        "--input",
-        type=Path,
-        required=True,
-        help="choose directory from which will new train dir be created",
-    )
-    p.add_argument(
-        "-o", "--output", type=Path, required=True, help="choose destination directory",
-    )
-    p.add_argument(
-        "-c", "--control", type=str, required=True, help="choose training control file",
-    ).completer = suggest_control
-
-    argcomplete.autocomplete(p)
-
-    return vars(p.parse_args())
-
-
-def prepare(*, input: Path, output: Path, control: str):
+def prepare(*, input: Path, output: Path, control: str, command: str):
 
     # copy directory
     shutil.copytree(input, output)
