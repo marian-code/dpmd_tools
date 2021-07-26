@@ -13,4 +13,4 @@ dependencies:
   - dpdata
   - ase
   - tqdm
-  - ssh-utilities>=0.8.3
+  - ssh-utilities>=0.8.8

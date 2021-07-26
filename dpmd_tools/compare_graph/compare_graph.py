@@ -62,7 +62,8 @@ COLORS = (
     "firebrick",
     "limegreen",
     "navy",
-    "pink",
+    "indigo",
+    "khaki",
 )
 WORK_DIR = Path.cwd()
 
@@ -169,7 +170,7 @@ def collect_lmp(collect_dirs: List[Path], lammpses: Tuple[str, ...]):
             )
 
 
-def parse_vasp(path: Path) -> Tuple[float, float, float]:
+def parse_vasp(path: Path) -> Tuple[float, float, float, float]:
 
     try:
         atoms = read(path)
@@ -182,7 +183,19 @@ def parse_vasp(path: Path) -> Tuple[float, float, float]:
         energy, volume, hydrostatic_stress = read_vasp_out(path)[:3]
         hydrostatic_stress /= 10
 
-    return energy, volume, hydrostatic_stress, get_spacegroup(atoms, symprec=0.01)
+    return energy, volume, hydrostatic_stress, get_spacegroup(atoms, symprec=0.01).no, len(atoms)
+
+
+def parse_qe(path: Path) -> Tuple[float, float, float, float]:
+
+    atoms = read(path)
+    energy = atoms.get_potential_energy()
+    volume = atoms.get_volume()
+
+    infile = (path.parent / "relax.in").read_text()
+    hydrostatic_stress = float(re.findall(r"\s+press\s+=\s+(\S+)", infile)[0]) / 10
+
+    return energy, volume, hydrostatic_stress, get_spacegroup(atoms, symprec=0.01).no, len(atoms)
 
 
 def collect_vasp(collect_dirs: List[Path]):
@@ -200,9 +213,10 @@ def collect_vasp(collect_dirs: List[Path]):
         data = []
 
         for d in dirs:
-            N = len(read(d / "POSCAR"))
             try:
-                en, vol, stress, spg = parse_vasp(d / "OUTCAR")
+                en, vol, stress, spg, N = parse_vasp(d / "OUTCAR")
+            except FileNotFoundError:
+                en, vol, stress, spg, N = parse_qe(d / "relax.out")
             except Exception as e:
                 print(d, e)
                 raise e from None
@@ -257,9 +271,12 @@ def plot_mpl(
     plt.show()
 
 
-def plot_abinit_ev(collect_dirs: List[Path], eos: str) -> go.Figure:
+def plot_abinit_ev(
+    collect_dirs: List[Path], eos: str, shift_ref: bool
+) -> Tuple[go.Figure, Dict[str, float]]:
 
     fig = go.Figure()
+    reference = None
 
     for wd, c in zip(collect_dirs, COLORS[: len(collect_dirs)]):
 
@@ -274,21 +291,32 @@ def plot_abinit_ev(collect_dirs: List[Path], eos: str) -> go.Figure:
         vasp_state = EquationOfState(
             vasp_data["volume"].to_numpy(), vasp_data["energy"].to_numpy(), eos=eos
         )
+        try:
+            v0, e0, _ = vasp_state.fit()
+        except RuntimeError:
+            print(f"Could not fit EOS for {wd}")
+            continue
+
+        if shift_ref:
+            if reference is None:
+                reference = {"v0": v0, "e0": e0}
+        else:
+            reference = {"v0": 1, "e0": 0}
         x, y = itemgetter(4, 5)(vasp_state.getplotdata())
 
         fig.add_trace(
-            go.Scattergl(
-                x=x,
-                y=y,
+            go.Scattergl(  # type: ignore
+                x=x / reference["v0"],
+                y=y - reference["e0"],
                 name=f"{wd.name} - Ab initio (VASP)",
                 line=dict(color=c, width=3, dash="solid"),
                 legendgroup=f"vasp_{c}",
             )
         )
         fig.add_trace(
-            go.Scattergl(
-                x=vasp_data["volume"],
-                y=vasp_data["energy"],
+            go.Scattergl(  # type: ignore
+                x=vasp_data["volume"] / reference["v0"],
+                y=vasp_data["energy"] - reference["e0"],
                 hovertext=[
                     f"{wd.name}<br>Ab initio (VASP)<br>p={p:.3f}<br>V={v:.3f}<br>"
                     f"E={e:.3f}<br>spg={Spacegroup(int(s)).symbol:s}"
@@ -298,15 +326,40 @@ def plot_abinit_ev(collect_dirs: List[Path], eos: str) -> go.Figure:
                 mode="markers",
                 showlegend=False,
                 line=dict(color=c, width=3),
-                marker_size=25,
+                marker_size=15,
                 legendgroup=f"vasp_{c}",
             )
         )
 
-    return fig
+    return fig, reference
 
 
-def plot_abinit_hp(collect_dirs: List[Path]) -> go.Figure:
+class BM:
+    """Birch–Murnaghan equation of state.
+
+    References
+    ----------
+    https://en.wikipedia.org/wiki/Birch%E2%80%93Murnaghan_equation_of_state
+    """
+
+    def __init__(self, b0: float, bp: float, v0: float) -> None:
+        self.b0 = b0
+        self.bp = bp
+        self.v0 = v0
+
+    def __call__(self, volumes: np.ndarray) -> np.ndarray:
+
+        dV = self.v0 / volumes
+        press = (
+            (3 * self.b0)
+            / 2
+            * (np.power(dV, 7 / 3) - np.power(dV, 5 / 3))
+            * (1 + (3 / 4) * (self.bp - 4) * (np.power(dV, 2 / 3) - 1))
+        )
+        return press
+
+
+def plot_abinit_hp(collect_dirs: List[Path], *, eos: str, fit: bool) -> go.Figure:
 
     fig = go.Figure()
 
@@ -321,16 +374,35 @@ def plot_abinit_hp(collect_dirs: List[Path]) -> go.Figure:
             header=0,
             comment="#",
         )
+
+        if fit:
+            vasp_state = EquationOfState(
+                df["volume"].to_numpy(), df["energy"].to_numpy(), eos=eos
+            )
+            try:
+                vasp_state.fit()
+            except RuntimeError:
+                print(f"Could not fit EOS for {wd}")
+                continue
+            _, B0, BP, V0 = vasp_state.eos_parameters
+            print(wd.name, "------------------------")
+            print(f"B_0: {B0 / units.GPa:.2f}, B'_0: {BP:.2f}")
+            df["stress"] = BM(B0, BP, V0)(df["volume"].to_numpy()) / units.GPa
+
         df = df.assign(enthalpy=df["energy"] + df["stress"] * units.GPa * df["volume"])
 
-        vasp_state = np.poly1d(np.polyfit(df["stress"], df["enthalpy"], 1))
+        vasp_state = np.poly1d(np.polyfit(df["stress"], df["enthalpy"], 2))
 
         # make reference from the first data point
         if not reference:
             reference = vasp_state
+            # ! testing
+            def ref(x):
+                return np.zeros(x.shape)
+            reference = ref
 
         fig.add_trace(
-            go.Scattergl(
+            go.Scattergl(  # type: ignore
                 x=df["stress"],
                 y=vasp_state(df["stress"]) - reference(df["stress"]),
                 name=f"{wd.name} - Ab initio (VASP)",
@@ -340,9 +412,8 @@ def plot_abinit_hp(collect_dirs: List[Path]) -> go.Figure:
                 legendgroup=f"vasp_{c}",
             )
         )
-        """
         fig.add_trace(
-            go.Scattergl(
+            go.Scattergl(  # type: ignore
                 x=df["stress"],
                 y=df["enthalpy"] - reference(df["stress"]),
                 name=f"{wd.name} - Ab initio (VASP)",
@@ -353,7 +424,6 @@ def plot_abinit_hp(collect_dirs: List[Path]) -> go.Figure:
                 legendgroup=f"vasp_{c}",
             )
         )
-        """
 
     return fig, reference
 
@@ -364,6 +434,9 @@ def plot_predicted_hp(
     labels: Tuple[str, ...],
     fig: go.Figure,
     reference: np.poly1d,
+    *,
+    eos: str,
+    fit: bool,
 ) -> go.Figure:
 
     for wd, c in zip(collect_dirs, COLORS[: len(collect_dirs)]):
@@ -375,6 +448,14 @@ def plot_predicted_hp(
                 header=0,
                 comment="#",
             )
+
+            if fit:
+                vasp_state = EquationOfState(
+                    df["volume"].to_numpy(), df["energy"].to_numpy(), eos=eos
+                )
+                vasp_state.fit()
+                _, B0, BP, V0 = vasp_state.eos_parameters
+                df["stress"] = BM(B0, BP, V0)(df["volume"].to_numpy()) / units.GPa
 
             df = df.assign(
                 enthalpy=df["energy"] + df["stress"] * units.GPa * df["volume"]
@@ -419,6 +500,7 @@ def plot_predicted_ev(
     lammpses: Tuple[str, ...],
     labels: Tuple[str, ...],
     fig: go.Figure,
+    reference: Dict[str, float],
 ) -> go.Figure:
 
     for wd, c in zip(collect_dirs, COLORS[: len(collect_dirs)]):
@@ -440,25 +522,25 @@ def plot_predicted_ev(
                 print(f"{Fore.RED}Could not fit equation of state for {wd.name}")
                 continue
             fig.add_trace(
-                go.Scattergl(
-                    x=x,
-                    y=y,
+                go.Scattergl(  # type: ignore
+                    x=x / reference["v0"],
+                    y=y - reference["e0"],
                     name=f"{wd.name} - {lab}",
                     line=dict(color=c, width=3, dash=ls),
                     legendgroup=c,
                 )
             )
             fig.add_trace(
-                go.Scattergl(
-                    x=lmps_data["volume"],
-                    y=lmps_data["energy"],
+                go.Scattergl(  # type: ignore
+                    x=lmps_data["volume"] / reference["v0"],
+                    y=lmps_data["energy"] - reference["e0"],
                     name=f"{wd.name} - {lab}",
                     mode="markers",
                     showlegend=False,
                     legendgroup=c,
                     marker_line_width=3,
                     marker_symbol="circle-open",
-                    marker_size=25,
+                    marker_size=15,
                     line=dict(color=c, width=3),
                 )
             )
@@ -474,6 +556,8 @@ def get_coverage(data_dir: Path, types: str = "type.raw"):
 
     data: Dict[str, Dict[str, np.ndarray]] = {}
     for d in iter_dirs:
+        if "minima" in str(d):
+            continue
         iter_dirs.set_description(f"get coverage: {d.name}")
         n_atoms = len((d / "type.raw").read_text().splitlines())
         sets = sorted(d.glob("set.*"), key=lambda x: x.name.split(".")[1])
@@ -518,11 +602,17 @@ def run(args, graph: Optional[Path]):
     MTD_RUNS = args["mtds"]
     ABINIT_DIR = WORK_DIR if not args["abinit_dir"] else Path(args["abinit_dir"])
 
+    if RECOMPUTE and not graph:
+        raise ValueError("Must input at least one graph if you want to recompute")
+
     collect_dirs = collect_data_dirs(ABINIT_DIR, reference=args["reference_structure"])
-    assert len(collect_dirs) <= len(COLORS), "There is not enough colors to plot"
+    assert len(collect_dirs) <= len(COLORS), (
+        f"There is not enough colors to plot, "
+        f"You are missing {len(collect_dirs) - len(COLORS)} more color(s)"
+    )
     collect_vasp(collect_dirs)
-    fig_ev = plot_abinit_ev(collect_dirs, EQ)
-    fig_hp, reference = plot_abinit_hp(collect_dirs)
+    fig_ev, reference_ev = plot_abinit_ev(collect_dirs, EQ, shift_ref=args["shift_ev"])
+    fig_hp, reference_hp = plot_abinit_hp(collect_dirs, eos=EQ, fit=True)
 
     if graph:
         mod_lmp_in(graph)
@@ -536,11 +626,15 @@ def run(args, graph: Optional[Path]):
 
         collect_lmp(collect_dirs, lammpses)
 
-        fig_ev = plot_predicted_ev(collect_dirs, EQ, lammpses, labels, fig_ev)
+        fig_ev = plot_predicted_ev(
+            collect_dirs, EQ, lammpses, labels, fig_ev, reference_ev
+        )
         fig_ev.update_layout(
             title="E-V diagram for DeepMd potential vs Ab Initio calculations"
         )
-        fig_hp = plot_predicted_hp(collect_dirs, lammpses, labels, fig_hp, reference)
+        fig_hp = plot_predicted_hp(
+            collect_dirs, lammpses, labels, fig_hp, reference_hp, eos=EQ, fit=True
+        )
         fig_hp.update_layout(
             title="H(p) plot for DeepMd potential vs Ab Initio calculations"
         )
@@ -581,8 +675,15 @@ def run(args, graph: Optional[Path]):
                     )
                 )
 
-    fig_ev.write_html(f"E-V({graph.stem}).html", include_plotlyjs="cdn")
-    fig_hp.write_html(f"H-p({graph.stem}).html", include_plotlyjs="cdn")
+    filename = f"({graph.stem}-{args['reference_structure']}).html"
+    print(f"writing: {filename}")
+
+    fig_ev.write_html(
+        f"E-V{filename}", include_plotlyjs="cdn"
+    )
+    fig_hp.write_html(
+        f"H-p{filename}", include_plotlyjs="cdn"
+    )
 
 
 def compare_ev(args: dict):
