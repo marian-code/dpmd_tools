@@ -18,8 +18,11 @@ def get_lmp_traj_indices(
     #  find deviation file
     for dev_file in path.glob("*"):
         with dev_file.open("r") as stream:
-            if header.match(stream.readline()):
-                break
+            try:
+                if header.match(stream.readline()):
+                    break
+            except UnicodeDecodeError:  # if we encounter binary graph files
+                continue
     else:
         raise FileNotFoundError("Could not find model deviation file from MD run")
 
