@@ -90,8 +90,10 @@ class ApplyConstraint:
                             f"{Fore.RESET}{cache_dir.relative_to(WORK_DIR)}"
                         )
                         system = self.system.predict(g)
+                        #system = self.system.parallel_predict(g, 4)
                 else:
                     system = self.system.predict(g)
+                    #system = self.system.parallel_predict(g, 4)
 
                 self._predictions.append(system)
 
@@ -216,6 +218,7 @@ class ApplyConstraint:
 
             self._record_select(np.concatenate(selected))
 
+    # TODO !!!!
     @check_bracket
     def pressure(self, *, bracket: Tuple[float, float]):
         """The pressure does not exactly correspond to one output by VASP.
@@ -351,12 +354,15 @@ class ApplyConstraint:
         self._record_select(s)
 
     def previous_iteration(self):
-        # this will ensure that even if no selection criteria was applied
-        # the structures for previous selection iterations will be selected
+        """Select only structures from previous selection iterations.
+        
+        This will ensure that even if no selection criteria was applied
+        the structures for previous selection iterations will be selected
+        """       
         self._record_select(np.array([], dtype=int))
 
     def apply(self) -> MaskedSystem:
-
+        """Apply all conditions and return the structures that meet them."""
         self.lprint(f"{Fore.LIGHTBLUE_EX}applying filters from all conditions")
 
         if self.append:

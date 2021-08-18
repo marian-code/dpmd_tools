@@ -4,7 +4,6 @@ Can be easily extended by writing new parser functions like e.g.
 `read_vasp_file` and by altering get paths function.
 """
 
-import os
 import sys
 from collections import deque
 from pathlib import Path
@@ -70,18 +69,20 @@ def postporcess_args(args: dict):
     return args
 
 
-def wait(path: Path):
+def wait(paths: List[Path]):
 
     loader = deque(["-", "/", "|", "\\"])
 
+    names = [p.name for p in paths]
+
     while True:
-        if path.exists():
-            print(f"Path {path} is present starting computation")
+        if all([p.exists() for p in paths]):
+            print(f"Paths {names} are present starting computation")
             sleep(5)
             return
         else:
             print(
-                f"{Fore.GREEN}Waiting for {Fore.RESET}{path}{Fore.GREEN} to become "
+                f"{Fore.GREEN}Waiting for {Fore.RESET}{names}{Fore.GREEN} to become "
                 f"available {Fore.RESET}{loader[0]}",
                 end="\r"
             )
@@ -203,7 +204,10 @@ def plot(multi_sys: MultiSystemsVar, chosen_sys: MultiSystemsVar, *, histogram: 
         index = 1
         while True:
             if name.is_file():
-                name = name.with_suffix(f".{index}.html")
+                if len(name.suffixes) == 1:  # e.g. _it2.html
+                    name = name.with_suffix(f".{index}.html")
+                else:  # e.g. _it2.1.html
+                    name = name.parent / f"{name.stem.split('.')[0]}.{index}.html"
                 index += 1
             else:
                 break
@@ -216,7 +220,10 @@ def plot(multi_sys: MultiSystemsVar, chosen_sys: MultiSystemsVar, *, histogram: 
 def to_deepmd(args: dict):  # NOSONAR
 
     if args["wait_for"]:
-        wait(Path(args["wait_for"]))
+        if args["wait_for"] == ["graphs"]:
+            wait(args["graphs"])  # ! WRONG ! wildcard will not expand when files are not present
+        else:
+            wait([Path(g) for g in args["wait_for"]])
 
     args = postporcess_args(args)
 

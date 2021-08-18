@@ -6,11 +6,10 @@ from ssh_utilities import Connection
 import dpmd_tools.readers.to_dpdata as readers
 from dpmd_tools.cluster import assign_clusters, take_prints
 from dpmd_tools.compare_graph import compare_ev
+from dpmd_tools.recompute import recompute, rings
+from dpmd_tools.scripts import analyse_mtd, copy_train, run_singlepoint, upload, dev2ase
 from dpmd_tools.system import MultiSystemsVar
 from dpmd_tools.to_deepmd import to_deepmd
-from dpmd_tools.scripts import upload, analyse_mtd
-from dpmd_tools.recompute import recompute, rings
-from dpmd_tools.scripts import run_singlepoint
 
 PARSER_CHOICES = [r.replace("read_", "") for r in readers.__all__]
 COLLECTOR_CHOICES = [
@@ -106,6 +105,23 @@ def main():
     )
     analyse_mtd_parser(analyse_mtd_p)
 
+    # * copy-train ********************************************************************
+    copy_train_p = sp.add_parser(
+        "copy-train",
+        help="upload dataset to remote server dir and/or local dir",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    copy_train_parser(copy_train_p)
+
+    # * traj_dev2ase ********************************************************************
+    traj_dev2ase = sp.add_parser(
+        "dev2ase",
+        help="select trajectory frames from lammps run to recompute based on DeepMD "
+        "calculated deviations",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    dev2ase_parser(traj_dev2ase)
+
     args = p.parse_args()
     dict_args = vars(args)
 
@@ -127,6 +143,10 @@ def main():
         run_singlepoint(**dict_args)
     elif args.command == "analyse-mtd":
         analyse_mtd(**dict_args)
+    elif args.command == "copy-train":
+        copy_train(**dict_args)
+    elif args.command == "dev2ase":
+        dev2ase(**dict_args)
     elif args.command == None:
         p.print_help()
     else:
@@ -154,7 +174,7 @@ def to_deepmd_parser(parser: argparse.ArgumentParser):
         help="some file formats may contain more than one frame in file, like "
         "OUTCAR for instance with this option, you can control which frames "
         "will be taken. e.g. --take-slice 5 -5. This will work as python "
-        "list slicing frames = list(frames)[5:-5]"
+        "list slicing frames = list(frames)[5:-5]",
     )
     parser.add_argument(
         "-g",
@@ -194,7 +214,7 @@ def to_deepmd_parser(parser: argparse.ArgumentParser):
         default=None,
         type=float,
         nargs=2,
-        help="constrain structures pressure. Input as 1.0 50. In GPa"
+        help="constrain structures pressure. Input as 1.0 50. In GPa",
     )
     parser.add_argument(
         "-a",
@@ -254,14 +274,14 @@ def to_deepmd_parser(parser: argparse.ArgumentParser):
         "dir, in this mode only dpmd_raw data format is supported. In merge mode "
         "use -gp/--get-paths argument to specify all directories at once. You must "
         "also specify -md/--merge-dir argument. In this mode no selection criteria are "
-        "applied, systems are only read in, merged and output to specified dir"
+        "applied, systems are only read in, merged and output to specified dir",
     )
     parser.add_argument(
         "-md",
         "--merge-dir",
         default=Path.cwd(),
         type=Path,
-        help="target dir where read in systems will be merged"
+        help="target dir where read in systems will be merged",
     )
     parser.add_argument(
         "-f",
@@ -353,11 +373,14 @@ def to_deepmd_parser(parser: argparse.ArgumentParser):
     )
     parser.add_argument(
         "-w",
-        "--wait_for",
+        "--wait-for",
         type=str,
+        nargs="*",
         default=None,
-        help="wait for some file to be present typically frozen graph model and only "
-        "then start computation. Accepts path to file or dir",
+        help="wait for some file(s) to be present typically frozen graph model(s) and "
+        "only then start computation. Accepts path to file or dir, if argument is "
+        "'graphs' then files from --graphs argument are used. You can also input more "
+        "paths or use wildcards and shell patterns",
     )
 
 
@@ -655,13 +678,89 @@ def get_remote_parser():
 
 
 def analyse_mtd_parser(parser):
-    
+
     parser.add_argument(
         "-ev",
         "--ev-only",
         help="output only ev file",
         default=False,
         action="store_true",
+    )
+
+
+def copy_train_parser(parser):
+
+    parser.add_argument(
+        "-i",
+        "--input",
+        type=Path,
+        required=True,
+        help="choose directory from which will new train dir be created",
+    )
+    parser.add_argument(
+        "-o", "--output", type=Path, required=True, help="choose destination directory",
+    )
+    parser.add_argument(
+        "-c", "--control", type=str, required=True, help="choose training control file",
+    )
+
+
+def dev2ase_parser(parser: argparse.ArgumentParser):
+
+    parser.add_argument(
+        "-t",
+        "--trajectory-file",
+        type=Path,
+        default=Path("trajectory.lammps"),
+        help="input lammps trajectory file",
+    )
+    parser.add_argument(
+        "-de",
+        "--dev-energy",
+        default=False,
+        type=float,
+        nargs=2,
+        help="specify energy deviations lower and upper bound for selection",
+    )
+    parser.add_argument(
+        "-df",
+        "--dev-force",
+        default=False,
+        type=float,
+        nargs=2,
+        help="specify force deviations lower and upper bound for selection",
+    )
+    parser.add_argument(
+        "-p",
+        "--portion",
+        type=float,
+        default=None,
+        help="specify portion of the selected frames to take "
+        "from trajectory to recompute. Must specify this or nframes",
+    )
+    parser.add_argument(
+        "-n",
+        "--nframes",
+        type=float,
+        default=None,
+        help="specify n of the selected frames to take "
+        "from trajectory to recompute. Must specify this or portion.",
+    )
+    parser.add_argument(
+        "-li",
+        "--lammps-infile",
+        type=str,
+        default="in.lammps",
+        help="name of the lammps input file, relative to parent dir of "
+        "lammps trajectory file"
+    )
+    parser.add_argument(
+        "-pi",
+        "--plumed-infile",
+        type=str,
+        default="plumed.dat",
+        help="name of the plumed input file, relative to parent dir of "
+        "lammps trajectory file"
     )
 
 

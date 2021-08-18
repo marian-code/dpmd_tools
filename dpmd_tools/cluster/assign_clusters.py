@@ -69,7 +69,8 @@ class KmeansRunner:
             )
             print(
                 "convergence.html file will be ploted every 1000 iterations in run "
-                "directory so you can asses convergence"
+                "directory so you can asses convergence. When satisfied, "
+                "just hit Ctrl-C"
             )
             data = np.load(fp)
             n_samples = data.shape[0]

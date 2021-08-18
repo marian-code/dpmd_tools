@@ -5,7 +5,7 @@ import shutil
 from atexit import register
 
 #logging.basicConfig(level=logging.DEBUG)
-from ssh_utilities.remote.path import SSHPath
+from ssh_utilities import SSHPath
 
 WORK_DIR = Path.cwd()
 

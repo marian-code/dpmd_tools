@@ -3,9 +3,10 @@
 import os
 from pathlib import Path
 from shutil import copy2
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, List, Optional, Union
 
 import numpy as np
+from joblib import Parallel, delayed
 from tqdm import tqdm
 from typing_extensions import TypedDict
 
@@ -13,6 +14,8 @@ from .base import BaseSystem
 from .selected_system import SelectedSystem
 
 if TYPE_CHECKING:
+
+    from .clustered_system import ClusteredSystem
 
     _DATA = TypedDict(
         "_DATA",
@@ -35,6 +38,50 @@ class AllSelectedError(Exception):
     """Raised when all structures from current dataset have already been selected."""
 
     pass
+
+
+def System(
+    *,
+    file_name: Optional[Path] = None,
+    fmt: str = "auto",
+    type_map: List[str] = None,
+    begin: int = 0,
+    step: int = 1,
+    data: Optional["_DATA"] = None,
+    **kwargs,
+) -> Union["MaskedSystem", "ClusteredSystem"]:
+    """This is a factory for Masked / Clustered system classes."""
+
+    def clusters_available(file_name: Optional[Path]):
+        if file_name is not None:
+            if (file_name / "clusters.raw").is_file():
+                return True
+
+        return False
+
+    if clusters_available(file_name):
+        # import here to prevent circular imports
+        from .clustered_system import ClusteredSystem
+
+        return ClusteredSystem(
+            file_name=file_name,
+            fmt=fmt,
+            type_map=type_map,
+            begin=begin,
+            step=step,
+            data=data,
+            **kwargs,
+        )
+    else:
+        return MaskedSystem(
+            file_name=file_name,
+            fmt=fmt,
+            type_map=type_map,
+            begin=begin,
+            step=step,
+            data=data,
+            **kwargs,
+        )
 
 
 class MaskedSystem(BaseSystem):
@@ -70,43 +117,7 @@ class MaskedSystem(BaseSystem):
 
     data: "_DATA"
     has_used: bool = True
-    _additional_arrays = ["used"]
-
-    def __new__(
-        cls,
-        *,
-        file_name: Optional[Path] = None,
-        fmt: str = "auto",
-        type_map: List[str] = None,
-        begin: int = 0,
-        step: int = 1,
-        data: Optional["_DATA"] = None,
-        **kwargs
-    ):
-
-        if cls.clusters_available(file_name):
-            # import here to prevent circular imports
-            from .clustered_system import ClusteredSystem
-            return ClusteredSystem(
-                file_name=file_name,
-                fmt=fmt,
-                type_map=type_map,
-                begin=begin,
-                step=step,
-                data=data,
-                **kwargs
-            )
-        else:
-            instance = super(MaskedSystem, cls).__new__(cls)
-            return instance
-
-    @staticmethod
-    def clusters_available(file_name: Optional[Path]):
-        if file_name is not None:
-            if (file_name / "clusters.raw").is_file():
-                return True
-
-        return False
+    _additional_arrays = ["used"]    
 
     # * custom methods *****************************************************************
     def _post_init(self, **kwargs):
@@ -149,9 +160,7 @@ class MaskedSystem(BaseSystem):
                 if backup_used.is_file():
                     backup_used.unlink()
                 copy2(used_file, backup_used)
-                self.load_messages.append(
-                    f"saved backup file {backup_used}"
-                )
+                self.load_messages.append(f"saved backup file {backup_used}")
                 # 0 means do not take into account any previous selections
                 if fi != 0:
                     self.data["used"] = self.data["used"][:, :fi]
@@ -299,12 +308,15 @@ class MaskedSystem(BaseSystem):
         # TODO ugly hack
         if self.has_dev_e and self.has_dev_f:
             from .dev_system import DevEFSystem
+
             return DevEFSystem(tmp_data, SelectedSystem)  # type: ignore
         elif self.has_dev_e:
             from .dev_system import DevESystem
+
             return DevESystem(tmp_data, SelectedSystem)  # type: ignore
         elif self.has_dev_f:
             from .dev_system import DevFSystem
+
             return DevFSystem(tmp_data, SelectedSystem)  # type: ignore
         else:
             return SelectedSystem(data=tmp_data)
@@ -315,9 +327,11 @@ class MaskedSystem(BaseSystem):
 
         if self.has_dev_f:
             from .dev_system import DevEFSystem
+
             return DevEFSystem(self.data, type(self))  # type: ignore
         else:
             from .dev_system import DevESystem
+
             return DevESystem(self.data, type(self))  # type: ignore
 
     def add_dev_f(self, data: np.ndarray) -> "MaskedSystem":
@@ -326,9 +340,11 @@ class MaskedSystem(BaseSystem):
 
         if self.has_dev_e:
             from .dev_system import DevEFSystem
+
             return DevEFSystem(self.data, type(self))  # type: ignore
         else:
             from .dev_system import DevFSystem
+
             return DevFSystem(self.data, type(self))  # type: ignore
 
     # * overriding methods *************************************************************
@@ -406,3 +422,73 @@ class MaskedSystem(BaseSystem):
             labeled_sys.data["forces"][idx] = data["forces"]
             labeled_sys.data["virials"][idx] = data["virials"]
         return labeled_sys
+
+    # ! not ready for deployment yet!!!
+    def parallel_predict(self, dp: Path, workers: int):
+
+        def _get_atype(dp: Path):
+
+            os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
+            import deepmd.DeepPot as DeepPot
+
+            deeppot = DeepPot(str(dp))
+
+            type_map = deeppot.get_type_map()
+            ori_sys = self.copy()
+            ori_sys.sort_atom_names(type_map=type_map)
+
+            return ori_sys["atom_types"]
+
+        def _worker(idx: int):
+
+            os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
+            import deepmd.DeepPot as DeepPot
+
+            deeppot = DeepPot(str(dp))
+
+            ss = super(MaskedSystem, self).sub_system(idx)
+
+            coord = ss["coords"].reshape((-1, 1))
+            if not ss.nopbc:
+                cell = ss["cells"].reshape((-1, 1))
+            else:
+                cell = None
+
+            data = ss.data
+
+            if idx in dont_recompute_idx:
+                # already selected in previous iteration -> skip
+                # create fake data, it does not matter since these will be skipped
+                # anyway because of the mask
+                data["energies"] = np.zeros((1, 1))
+                data["forces"] = np.zeros((1, ss.get_natoms(), 3))
+                data["virials"] = np.zeros((1, 3, 3))
+            else:
+                e, f, v = deeppot.eval(coord, cell, atype)
+                data["energies"] = e.reshape((1, 1))
+                data["forces"] = f.reshape((1, -1, 3))
+                data["virials"] = v.reshape((1, 3, 3))
+
+            return (idx, data)
+
+        dont_recompute_idx = self.get_subsystem_indices()
+        atype = _get_atype(dp)
+
+        pool = Parallel(n_jobs=workers, backend="loky")
+        exec = delayed(_worker)
+
+        labeled_sys = self.copy()
+        data = pool(
+            exec(idx)
+            for idx in tqdm(
+                range(self.get_nframes()),
+                total=self.get_nframes(),
+                ncols=100,
+                leave=False,
+            )
+        )
+
+        for idx, d in data:
+            labeled_sys.data["energies"][idx] = d["energies"]
+            labeled_sys.data["forces"][idx] = d["forces"]
+            labeled_sys.data["virials"][idx] = d["virials"]
