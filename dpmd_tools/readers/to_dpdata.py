@@ -7,16 +7,14 @@ Alwys append new methods to __all__ variable!
 """
 
 import gzip
-import re
 import shutil
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Iterator, List, Optional, Tuple
 
 import numpy as np
-import pandas as pd
-from colorama import Fore
 from dpmd_tools.system import LmpDevSystem, MaskedSystem, System
+from .common import get_lmp_traj_indices
 
 __all__ = [
     "read_xtalopt_dir",
@@ -91,45 +89,12 @@ def read_lmp_traj_dev(
     dev_force: Tuple[float, float],
     **kwargs,
 ) -> List[LmpDevSystem]:
-    from py_extract_frames import copy_traj, parse_traj
-
-    header = re.compile(r"#\s*step\s*max_devi_e\s*min_devi_e\s*avg_devi_e\s*max_devi_f")
+    from py_extract_frames.extract_frames import copy_traj, parse_traj
 
     with TemporaryDirectory(dir=traj_file.parent) as tmp:
         tmp_dir = Path(tmp)
 
-        #  find deviation file
-        for f in tmp_dir.glob("*"):
-            with f.open("r") as stream:
-                if header.match(stream.readline()):
-                    break
-        else:
-            raise FileNotFoundError("Could not find model deviation file from MD run")
-        print(
-            f"{Fore.YELLOW} we are assuming that trajectory and model deviation "
-            f"frequency are equal"
-        )
-
-        df = pd.read_table(f, sep=r"\s+")
-
-        if dev_force:
-            cf = (dev_force[0] < df["max_devi_f"]) & (df["max_devi_f"] < dev_force[1])
-        else:
-            cf = None
-        if dev_energy:
-            ce = (dev_energy[0] < df["max_devi_f"]) & (df["max_devi_f"] < dev_energy[1])
-        else:
-            ce = None
-
-        if ce and cf:
-            cond = ce & cf
-        elif not ce:
-            cond = cf
-        elif not cf:
-            cond = ce
-
-        indices = df.loc[cond].index.to_numpy()
-        indices = indices.astype(int)
+        indices, dev_data = get_lmp_traj_indices(tmp_dir, dev_energy, dev_force)
 
         systems = []
         for start, stop in _consecutive(indices):
@@ -140,8 +105,8 @@ def read_lmp_traj_dev(
             copy_traj(traj_file, tmp_dir / "traj.tmp", start_pos, stop_pos)
             s = LmpDevSystem(
                 file_name=tmp_dir / "traj.tmp",
-                dev_energy=df["max_devi_e"].to_numpy()[start:stop],
-                dev_force=df["max_devi_f"].to_numpy()[start:stop],
+                dev_energy=dev_data["max_devi_e"].to_numpy()[start:stop],
+                dev_force=dev_data["max_devi_f"].to_numpy()[start:stop],
             )
             systems.append(s)
 
