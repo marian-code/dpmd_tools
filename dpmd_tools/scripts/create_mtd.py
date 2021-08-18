@@ -6,6 +6,7 @@ from ase.io import read, write
 import re
 from ase.build import make_supercell
 import numpy as np
+from ssh_utilities import Connection
 
 
 def input_parser() -> dict:
@@ -18,7 +19,7 @@ def input_parser() -> dict:
     p.add_argument(
         "-i",
         "--input",
-        type=Path,
+        type=str,
         required=True,
         help="choose directory from which will new MetaD dir be created",
     )
@@ -81,7 +82,7 @@ def input_parser() -> dict:
 
 def create_mtd(
     *,
-    input: Path,
+    input: str,
     output: Path,
     graphs: Optional[List[Path]] = None,
     job_name: Optional[str] = None,
@@ -108,9 +109,17 @@ def create_mtd(
         ignore.append("*.pb")
 
     # copy directory
-    shutil.copytree(
-        input, output, symlinks=True, ignore=shutil.ignore_patterns(*ignore),
-    )
+    if "@" in input:
+        server, input = input.split("@")
+        print("\n\n\n")
+        with Connection(server, local=False, quiet=True) as c:
+            c.shutil.download_tree(
+                input, output, exclude=ignore, remove_after=False, quiet="stats"
+            )
+    else:
+        shutil.copytree(
+            input, output, symlinks=True, ignore=shutil.ignore_patterns(*ignore),
+        )
 
     if graphs:
         # find graphs if input as wildcard

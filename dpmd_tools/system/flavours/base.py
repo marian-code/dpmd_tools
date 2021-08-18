@@ -119,7 +119,7 @@ class BaseSystem(LabeledSystem):
 
                 # for 2D sometimes the shapes do not match. This is problem in merge
                 # mode when one system has gone through more iterations of selection
-                #  than the other
+                # than the other, in that case we fill in zeroes
                 if len(system.data[a].shape) >= 2:
 
                     s1 = self.data[a].shape[1]
