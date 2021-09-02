@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
-from matplotlib.ticker import MultipleLocator, AutoMinorLocator
+from matplotlib.ticker import AutoMinorLocator
 import numpy as np
 import plotly.graph_objects as go
 from ase import Atoms, io, units
@@ -38,7 +38,7 @@ from dpmd_tools.utils import get_remote_files
 from tqdm import tqdm
 import pandas as pd
 from ase.spacegroup import get_spacegroup, Spacegroup
-from ssh_utilities import Connection, path_wildcard_expand
+from ssh_utilities import Connection
 
 sys.path.append("/home/rynik/OneDrive/dizertacka/code/rw")
 
@@ -48,6 +48,9 @@ try:
     from plotly_theme_setter import *
 except ImportError:
     print("cannot use compare graph script, custom modules are missing")
+    ANGSTROM = "A"
+    POW3 = "3"
+    DELTA = "d"
 
 init(autoreset=True)
 
@@ -685,12 +688,12 @@ def run(args, graph: Optional[Path]):
     fig_ev.update_layout(
         xaxis_title=f"V [{ANGSTROM}{POW3} / atom]",
         yaxis_title="E [eV / atom]",
-        template="minimovka",
+        #template="minimovka",
     )
     fig_hp.update_layout(
         xaxis_title=f"p [GPa]",
         yaxis_title=f"{DELTA}H [eV / atom], {collect_dirs[0].name} is reference",
-        template="minimovka",
+        #template="minimovka",
     )
     ax_hp.set(
         xlabel=f"p [GPa]",
