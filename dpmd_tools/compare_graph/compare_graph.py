@@ -699,8 +699,8 @@ def run(args, graph: Optional[Path]):
     ax_hp.grid(linewidth=0.5)
     ax_hp.yaxis.set_minor_locator(AutoMinorLocator())
     ax_hp.xaxis.set_minor_locator(AutoMinorLocator())
-    ax_hp.set_xlim(-10, 40)
-    ax_hp.set_ylim(-1.5, 1)
+    ax_hp.set_xlim(args["x_span_hp"][0], args["x_span_hp"][1])
+    ax_hp.set_ylim(args["y_span_hp"][0], args["y_span_hp"][1])
     figm_hp.legend(loc="upper left", bbox_to_anchor=(0.25, 0.35), borderaxespad=0.0)
 
     if MTD_RUNS:
@@ -736,10 +736,12 @@ def run(args, graph: Optional[Path]):
                 )
 
     filename = f"({graph.stem}-{args['reference_structure']}).html"
+    
     print(f"writing: {filename}")
-
     fig_ev.write_html(f"E-V{filename}", include_plotlyjs="cdn")
     fig_hp.write_html(f"H-p{filename}", include_plotlyjs="cdn")
+    
+    print(f"writing: {filename.replace('html', 'png')}")
     figm_hp.savefig(
         f"H-p{filename}".replace("html", "png"), dpi=500, bbox_inches="tight"
     )

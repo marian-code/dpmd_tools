@@ -255,7 +255,7 @@ if recompute:
 
         hosts = type('Hosts', (), {})()
         for h in HOSTS:
-            setattr(hosts, h, dict(c=Connection.get(h, quiet=True),
+            setattr(hosts, h, dict(c=Connection(h, quiet=True),
                                    lock=Lock()))
             c = getattr(hosts, h)["c"]
             c.mkdir(WD, exist_ok=True)

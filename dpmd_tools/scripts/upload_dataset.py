@@ -25,7 +25,7 @@ def upload(args: dict):
         target = WORK_DIR
 
     # init cconnection
-    c = Connection.get(args["server"], local=False, quiet=True)
+    c = Connection(args["server"], local=False, quiet=True)
     register(c.close, quiet=True)
 
     if server:

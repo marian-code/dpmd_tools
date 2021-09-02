@@ -455,6 +455,22 @@ def ev_parser(parser: argparse.ArgumentParser):
         action="store_true",
         help="Shift all E(V) curves according to the lowest point E0, V0 point",
     )
+    parser.add_argument(
+        "-xh",
+        "--x-span-hp",
+        default=(-10, 40),
+        nargs=2,
+        type=float,
+        help="set the span of x axis in the H(p) graph, applies only to png"
+    )
+    parser.add_argument(
+        "-yh",
+        "--y-span-hp",
+        default=(-1.5, 1),
+        nargs=2,
+        type=float,
+        help="set the span of y axis in the H(p) graph, applies only to png"
+    )
 
 
 def prints_parser(parser: argparse.ArgumentParser):
@@ -558,7 +574,7 @@ def remote_recompute_parser(parser: argparse.ArgumentParser):
     parser.add_argument(
         "-l",
         "--loader",
-        help="input <dir>.<file>.<python function>. This must contain function that will be "
+        help="input <dir>.<file_ithout_ext>.<python function>. This must contain function that will be "
         "imported and run. Function must not take any arguments and must return list "
         "of atoms objects to recompute",
         type=str,
