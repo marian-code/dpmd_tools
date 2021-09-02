@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MultipleLocator, AutoMinorLocator
 import numpy as np
 import plotly.graph_objects as go
 from ase import Atoms, io, units
@@ -37,6 +38,7 @@ from dpmd_tools.utils import get_remote_files
 from tqdm import tqdm
 import pandas as pd
 from ase.spacegroup import get_spacegroup, Spacegroup
+from ssh_utilities import Connection, path_wildcard_expand
 
 sys.path.append("/home/rynik/OneDrive/dizertacka/code/rw")
 
@@ -52,9 +54,9 @@ init(autoreset=True)
 COLORS = (
     "black",
     "blue",
-    "purple",
-    "green",
     "red",
+    "green",
+    "purple",
     "cyan",
     "goldenrod",
     "gray",
@@ -183,7 +185,13 @@ def parse_vasp(path: Path) -> Tuple[float, float, float, float]:
         energy, volume, hydrostatic_stress = read_vasp_out(path)[:3]
         hydrostatic_stress /= 10
 
-    return energy, volume, hydrostatic_stress, get_spacegroup(atoms, symprec=0.01).no, len(atoms)
+    return (
+        energy,
+        volume,
+        hydrostatic_stress,
+        get_spacegroup(atoms, symprec=0.01).no,
+        len(atoms),
+    )
 
 
 def parse_qe(path: Path) -> Tuple[float, float, float, float]:
@@ -195,7 +203,13 @@ def parse_qe(path: Path) -> Tuple[float, float, float, float]:
     infile = (path.parent / "relax.in").read_text()
     hydrostatic_stress = float(re.findall(r"\s+press\s+=\s+(\S+)", infile)[0]) / 10
 
-    return energy, volume, hydrostatic_stress, get_spacegroup(atoms, symprec=0.01).no, len(atoms)
+    return (
+        energy,
+        volume,
+        hydrostatic_stress,
+        get_spacegroup(atoms, symprec=0.01).no,
+        len(atoms),
+    )
 
 
 def collect_vasp(collect_dirs: List[Path]):
@@ -362,6 +376,7 @@ class BM:
 def plot_abinit_hp(collect_dirs: List[Path], *, eos: str, fit: bool) -> go.Figure:
 
     fig = go.Figure()
+    figm, ax = plt.subplots()
 
     reference = None
 
@@ -391,15 +406,15 @@ def plot_abinit_hp(collect_dirs: List[Path], *, eos: str, fit: bool) -> go.Figur
 
         df = df.assign(enthalpy=df["energy"] + df["stress"] * units.GPa * df["volume"])
 
-        vasp_state = np.poly1d(np.polyfit(df["stress"], df["enthalpy"], 2))
+        vasp_state = np.poly1d(np.polyfit(df["stress"], df["enthalpy"], 1))
 
         # make reference from the first data point
         if not reference:
             reference = vasp_state
             # ! testing
-            def ref(x):
-                return np.zeros(x.shape)
-            reference = ref
+            # def ref(x):
+            #    return np.zeros(x.shape)
+            # reference = ref
 
         fig.add_trace(
             go.Scattergl(  # type: ignore
@@ -425,7 +440,19 @@ def plot_abinit_hp(collect_dirs: List[Path], *, eos: str, fit: bool) -> go.Figur
             )
         )
 
-    return fig, reference
+        fig.update_layout(xaxis=dict(tickmode="linear", tick0=0, dtick=10))
+
+        # ax.scatter(df["stress"], df["enthalpy"] - reference(df["stress"]), s=15, c=c)
+        ax.plot(
+            df["stress"],
+            vasp_state(df["stress"]) - reference(df["stress"]),
+            label=f"{wd.name} - Ab initio (VASP)",
+            color=c,
+            linestyle="solid",
+            linewidth=1,
+        )
+
+    return fig, reference, figm, ax
 
 
 def plot_predicted_hp(
@@ -550,7 +577,10 @@ def plot_predicted_ev(
 
 def get_coverage(data_dir: Path, types: str = "type.raw"):
 
-    dirs = [d for d in data_dir.rglob("*") if (d / types).is_file()]
+    dirs = [d for d in data_dir.glob("**") if (d / types).is_file()]
+
+    print(data_dir, type(data_dir))
+    print(dirs)
 
     iter_dirs: Iterator[Path] = tqdm(dirs, ncols=100, total=len(list(dirs)))
 
@@ -559,10 +589,17 @@ def get_coverage(data_dir: Path, types: str = "type.raw"):
         if "minima" in str(d):
             continue
         iter_dirs.set_description(f"get coverage: {d.name}")
+        print("readlines")
         n_atoms = len((d / "type.raw").read_text().splitlines())
         sets = sorted(d.glob("set.*"), key=lambda x: x.name.split(".")[1])
-        energies = np.concatenate([np.load(s / "energy.npy") for s in sets]) / n_atoms
-        cells = np.vstack([np.load(s / "box.npy") for s in sets]).reshape((-1, 3, 3))
+        print("np load")
+        energies = (
+            np.concatenate([np.load((s / "energy.npy").open("rb")) for s in sets])
+            / n_atoms
+        )
+        cells = np.vstack([np.load((s / "box.npy").open("rb")) for s in sets]).reshape(
+            (-1, 3, 3)
+        )
         volumes = np.array([np.abs(np.linalg.det(c)) for c in cells]) / n_atoms
 
         if len(d.relative_to(data_dir).parts) == 1:
@@ -612,7 +649,9 @@ def run(args, graph: Optional[Path]):
     )
     collect_vasp(collect_dirs)
     fig_ev, reference_ev = plot_abinit_ev(collect_dirs, EQ, shift_ref=args["shift_ev"])
-    fig_hp, reference_hp = plot_abinit_hp(collect_dirs, eos=EQ, fit=True)
+    fig_hp, reference_hp, figm_hp, ax_hp = plot_abinit_hp(
+        collect_dirs, eos=EQ, fit=False
+    )
 
     if graph:
         mod_lmp_in(graph)
@@ -653,6 +692,16 @@ def run(args, graph: Optional[Path]):
         yaxis_title=f"{DELTA}H [eV / atom], {collect_dirs[0].name} is reference",
         template="minimovka",
     )
+    ax_hp.set(
+        xlabel=f"p [GPa]",
+        ylabel=f"{DELTA}H [eV / atom], {collect_dirs[0].name} is reference",
+    )
+    ax_hp.grid(linewidth=0.5)
+    ax_hp.yaxis.set_minor_locator(AutoMinorLocator())
+    ax_hp.xaxis.set_minor_locator(AutoMinorLocator())
+    ax_hp.set_xlim(args["x_span_hp"][0], args["x_span_hp"][1])
+    ax_hp.set_ylim(args["y_span_hp"][0], args["y_span_hp"][1])
+    figm_hp.legend(loc="upper left", bbox_to_anchor=(0.25, 0.35), borderaxespad=0.0)
 
     if MTD_RUNS:
         mtd_data = get_mtd_runs(MTD_RUNS)
@@ -666,7 +715,18 @@ def run(args, graph: Optional[Path]):
 
     if TRAIN_DIR:
         for t in TRAIN_DIR:
-            coverage_data = get_coverage(Path(t))
+            if "@" in t:
+                server, t = t.split("@")
+                local = False
+            else:
+                server = "LOCAL"
+                local = True
+
+            print(server, local)
+            with Connection(server, quiet=True, local=local) as c:
+                print(c)
+                path = c.pathlib.Path(t)
+                coverage_data = get_coverage(path)
 
             for name, cdata in coverage_data.items():
                 fig_ev.add_trace(
@@ -676,13 +736,14 @@ def run(args, graph: Optional[Path]):
                 )
 
     filename = f"({graph.stem}-{args['reference_structure']}).html"
+    
     print(f"writing: {filename}")
-
-    fig_ev.write_html(
-        f"E-V{filename}", include_plotlyjs="cdn"
-    )
-    fig_hp.write_html(
-        f"H-p{filename}", include_plotlyjs="cdn"
+    fig_ev.write_html(f"E-V{filename}", include_plotlyjs="cdn")
+    fig_hp.write_html(f"H-p{filename}", include_plotlyjs="cdn")
+    
+    print(f"writing: {filename.replace('html', 'png')}")
+    figm_hp.savefig(
+        f"H-p{filename}".replace("html", "png"), dpi=500, bbox_inches="tight"
     )
 
 

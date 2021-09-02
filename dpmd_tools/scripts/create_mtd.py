@@ -1,11 +1,12 @@
-from pathlib import Path
 import argparse
-from typing import List, Optional
-import shutil
-from ase.io import read, write
 import re
-from ase.build import make_supercell
+import shutil
+from pathlib import Path
+from typing import List, Optional
+
 import numpy as np
+from ase.build import make_supercell
+from ase.io import read, write
 from ssh_utilities import Connection
 
 
@@ -111,7 +112,6 @@ def create_mtd(
     # copy directory
     if "@" in input:
         server, input = input.split("@")
-        print("\n\n\n")
         with Connection(server, local=False, quiet=True) as c:
             c.shutil.download_tree(
                 input, output, exclude=ignore, remove_after=False, quiet="stats"
