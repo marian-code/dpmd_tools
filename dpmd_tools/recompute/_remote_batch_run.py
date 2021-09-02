@@ -9,6 +9,7 @@ of ase.Atoms objects.
 import itertools
 import logging
 import re
+import json
 from abc import abstractmethod
 from collections import Counter, defaultdict, deque
 from contextlib import nullcontext
@@ -144,7 +145,7 @@ class RemoteBatchRun:
                 JOB_SUBMIT = "/opt/pbs/bin/qsub"
 
             self.c[h] = {
-                "conn": Connection.get(
+                "conn": Connection(
                     h,
                     quiet=True,
                     local=True if h == "local" else False,
@@ -228,7 +229,25 @@ class RemoteBatchRun:
         if hosts is None:
             hosts = []
 
-        data = deserialize(dump_file, hosts)
+        with dump_file.open() as f:
+            restaring_n_hosts = len(json.load(f))
+
+        if restaring_n_hosts > len(hosts):
+            inpt = input(
+                "Some compute hosts are missing that were specified in the "
+                "previous run, Do you want to allow the calculations on those "
+                "hosts to finish?(no new jobs will be submitted) [y/n]: "
+            )
+            if inpt == "y":
+                allow_finish = True
+            elif inpt == "n":
+                allow_finish = False
+            else:
+                raise ValueError(f"{inpt} answer is not supported, input y/n")
+        else:
+            allow_finish = False
+
+        data = deserialize(dump_file, hosts, allow_finish)
 
         rs = data.pop("remote_settings")
         rs.update(remote_settings)

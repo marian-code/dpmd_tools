@@ -168,7 +168,11 @@ class Recompute(RemoteBatchRun):
 
     def _get_incar(self, server: str, atoms: "Atoms", calc_dir: Path):
 
-        args = {"nsim": 4, "npar": 4, "kpar": 2 if len(atoms) > 10 else 1}
+        if server in ("planck", "kohn", "aurel"):
+            args = {"nsim": 4, "npar": 4, "kpar": 2 if len(atoms) > 10 else 1}
+        else:
+            args = {"nsim": 4, "npar": 3, "kpar": 2 if len(atoms) > 10 else 1}
+
         if server != "aurel":
             args["lscalapack"] = False
 

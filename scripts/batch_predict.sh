@@ -38,19 +38,16 @@ for index in ${!paths[*]}; do
         --press -5 100 \
         --energy -5 -2 \
         --per-atom \
-        --every 10 \
         --mode append \
-        --force-iteration 0 \
-        --get-paths 'list((Path.cwd() / "all").glob("Ge*"))' \
         --save yes\
-        #--max-select 5% \
-        #--cache-predictions \
-        #--block-pbs \
-        #--dev-force 0.1 1 \
-        #--std-method \
-        #--fingerprint-use \
-        #--graphs ../../../selective_train1/gen5/train*/ge_all*.pb \
-        #--volume 10 31 \
-        #--wait_for ../../../selective_train1/gen5/train5_4/ge_all_s5_4.pb
+        --max-select 5% \
+        --cache-predictions \
+        --block-pbs \
+        --dev-force 0.1 1 \
+        --std-method \
+        --fingerprint-use \
+        --graphs ../../../selective_train2/gen1/train1_[1-4]/ge_all*.pb \
+        --volume 10 31 \
+        --wait_for ../../../selective_train1/gen1/train1_4/ge_all_s1_4.pb
     cd ../..
 done
