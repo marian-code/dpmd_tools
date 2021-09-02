@@ -75,18 +75,22 @@ def serialize(path: Path, data: dict):
         json.dump(data, f, indent=4, sort_keys=True, default=json_serializable)
 
 
-def deserialize(path: Path, hosts: Sequence[str]) -> dict:
+#TODO something is not right
+def deserialize(path: Path, hosts: Sequence[str], allow_finish: bool) -> dict:
 
     with path.open() as f:
         data = json.load(f)
 
+        initialized_data = {}
         for host, conn in data.items():
             if host == "remote_settings":
                 continue
-            conn["conn"] = Connection.from_str(conn["conn"], quiet=True)
             if host not in hosts:
-                conn["max"] = 0
-
+                if allow_finish:
+                    conn["max"] = 0
+                else:
+                    continue
+            conn["conn"] = Connection.from_str(conn["conn"], quiet=True)
             # cast path to SSHPath
             conn["remote_dir"] = conn["conn"].pathlib.Path(conn["remote_dir"])
 
@@ -96,4 +100,7 @@ def deserialize(path: Path, hosts: Sequence[str]) -> dict:
                 job.running_dir = conn["conn"].pathlib.Path(job.running_dir)
                 job.submit_time = datetime.now()
 
-        return data
+        initialized_data[host] = conn
+        initialized_data["remote_settings"] = data["remote_settings"]
+
+        return initialized_data

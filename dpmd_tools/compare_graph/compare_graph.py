@@ -580,10 +580,16 @@ def plot_predicted_ev(
 
 def get_coverage(data_dir: Path, types: str = "type.raw"):
 
-    dirs = [d for d in data_dir.glob("**") if (d / types).is_file()]
+    print("finding directories")
+    dirs = [
+        d
+        for d in tqdm(data_dir.glob("**"), )
+        if (d / types).is_file() and "cache" not in str(d)
+        and "for_train" not in str(d)
+    ]
 
-    print(data_dir, type(data_dir))
-    print(dirs)
+    for i, d in enumerate(dirs):
+        print(f"{i:>2}. {d}")
 
     iter_dirs: Iterator[Path] = tqdm(dirs, ncols=100, total=len(list(dirs)))
 
@@ -592,18 +598,22 @@ def get_coverage(data_dir: Path, types: str = "type.raw"):
         if "minima" in str(d):
             continue
         iter_dirs.set_description(f"get coverage: {d.name}")
-        print("readlines")
         n_atoms = len((d / "type.raw").read_text().splitlines())
         sets = sorted(d.glob("set.*"), key=lambda x: x.name.split(".")[1])
-        print("np load")
-        energies = (
-            np.concatenate([np.load((s / "energy.npy").open("rb")) for s in sets])
-            / n_atoms
-        )
-        cells = np.vstack([np.load((s / "box.npy").open("rb")) for s in sets]).reshape(
-            (-1, 3, 3)
-        )
-        volumes = np.array([np.abs(np.linalg.det(c)) for c in cells]) / n_atoms
+
+        if sets:
+            energies = (
+                np.concatenate([np.load((s / "energy.npy").open("rb")) for s in sets])
+                / n_atoms
+            )
+            cells = np.vstack([np.load((s / "box.npy").open("rb")) for s in sets]).reshape(
+                (-1, 3, 3)
+            )
+        else:
+            energies = np.loadtxt((d / "energy.raw").open("rb"))
+            cells = np.loadtxt((d / "box.raw").open("rb")).reshape(-1, 3, 3)
+
+        volumes = np.abs(np.linalg.det(cells)) / n_atoms
 
         if len(d.relative_to(data_dir).parts) == 1:
             # data/md_cd/...raw
@@ -739,11 +749,11 @@ def run(args, graph: Optional[Path]):
                 )
 
     filename = f"({graph.stem}-{args['reference_structure']}).html"
-    
+
     print(f"writing: {filename}")
     fig_ev.write_html(f"E-V{filename}", include_plotlyjs="cdn")
     fig_hp.write_html(f"H-p{filename}", include_plotlyjs="cdn")
-    
+
     print(f"writing: {filename.replace('html', 'png')}")
     figm_hp.savefig(
         f"H-p{filename}".replace("html", "png"), dpi=500, bbox_inches="tight"
