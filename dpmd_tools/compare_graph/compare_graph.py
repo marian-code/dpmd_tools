@@ -610,7 +610,7 @@ def get_coverage(data_dir: Path, types: str = "type.raw"):
                 (-1, 3, 3)
             )
         else:
-            energies = np.loadtxt((d / "energy.raw").open("rb"))
+            energies = np.loadtxt((d / "energy.raw").open("rb")) / n_atoms
             cells = np.loadtxt((d / "box.raw").open("rb")).reshape(-1, 3, 3)
 
         volumes = np.abs(np.linalg.det(cells)) / n_atoms
@@ -618,6 +618,8 @@ def get_coverage(data_dir: Path, types: str = "type.raw"):
         if len(d.relative_to(data_dir).parts) == 1:
             # data/md_cd/...raw
             name = d.name.replace("data_", "")
+        elif len(d.relative_to(data_dir).parts) == 4 and "all" in str(d):
+            name = d.parent.parent.parent.name
         else:
             # data/md_cd/Ge136/...raw
             name = d.parent.name.replace("data_", "")
@@ -744,7 +746,7 @@ def run(args, graph: Optional[Path]):
             for name, cdata in coverage_data.items():
                 fig_ev.add_trace(
                     go.Scattergl(
-                        x=cdata["volume"], y=cdata["energy"], mode="markers", name=name
+                        x=cdata["volume"], y=cdata["energy"], mode="markers", name=name, text=list(range(len(cdata["volume"])))
                     )
                 )
 

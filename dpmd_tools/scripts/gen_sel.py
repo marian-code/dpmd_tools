@@ -1,4 +1,3 @@
-from numpy.core.defchararray import array, title
 import plotly.graph_objects as go
 from pathlib import Path
 from dpdata import LabeledSystem
