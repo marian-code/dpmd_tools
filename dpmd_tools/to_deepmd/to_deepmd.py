@@ -414,7 +414,7 @@ def to_deepmd(args: dict):  # NOSONAR
     DPMD_DATA_TRAIN.mkdir(exist_ok=True, parents=True)
 
     lprint(f"{Fore.GREEN}saving data for training ------------------------------------")
-    chosen_sys.to_deepmd_npy(DPMD_DATA_TRAIN, set_size="auto")
+    chosen_sys.to_deepmd_npy(DPMD_DATA_TRAIN, dp_version=args["version"], set_size="auto")
 
     if args["mode"] != "merge":
         lprint(f"{Fore.GREEN}saving all data for further use -----------------------------")

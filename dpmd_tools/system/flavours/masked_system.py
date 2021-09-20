@@ -377,7 +377,12 @@ class MaskedSystem(BaseSystem):
             The labeled system.
         """
         os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
-        import deepmd.DeepPot as DeepPot
+        try:
+            # DP 1.x
+            import deepmd.DeepPot as DeepPot
+        except ModuleNotFoundError:
+            # DP 2.x
+            from deepmd.infer import DeepPot
 
         self.deeppot = DeepPot(str(dp))
         type_map = self.deeppot.get_type_map()

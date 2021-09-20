@@ -383,6 +383,16 @@ def to_deepmd_parser(parser: argparse.ArgumentParser):
         "paths or use wildcards and shell patterns",
     )
 
+    parser.add_argument(
+        "-V",
+        "--version",
+        type=int,
+        choices=(1, 2),
+        default=2,
+        help="choose deepmd version. Based on this we will output data structure in "
+        "merge mode"
+    )
+
 
 def ev_parser(parser: argparse.ArgumentParser):
 
