@@ -12,8 +12,8 @@ except ImportError:
 
 if TYPE_CHECKING:
 
-    DISP = Callable[[str, int, str, str, bool, int], str]
-    DECORATED = Callable[[int, str, str, bool, int], str]
+    DISP = Callable[[str, int, str, str, int, bool, int], str]
+    DECORATED = Callable[[int, str, str, int, bool, int], str]
     DECORATOR = Callable[[DISP], DISP]
 
 log = logging.getLogger(__name__)
@@ -47,11 +47,12 @@ class Decorated:
         n_nodes: int,
         ident: str,
         run_this: Literal["vasp", "vasp-scan", "rings"],
+        steps: int = 1,
         priority: bool = True,
         hour_length: int = 12,
     ) -> str:
         job = self._decorated(
-            self._server, n_nodes, ident, run_this, priority, hour_length
+            self._server, n_nodes, ident, run_this, steps, priority, hour_length
         )
 
         job += "\ntouch done"

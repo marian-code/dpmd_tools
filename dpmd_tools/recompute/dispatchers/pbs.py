@@ -8,6 +8,7 @@ def batch_script_pbs(
     n_nodes: int,
     ident: str,
     run_this: str,
+    steps: int = 1,
     priority: bool = True,
     hour_length: int = 12,
 ) -> str:
@@ -48,7 +49,17 @@ def batch_script_pbs(
         s += "source /opt/intel/bin/compilervars.sh intel64\n"
         s += 'export PATH="$PATH:/opt/intel/bin"\n'
         s += 'export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/opt/intel/mkl/lib/intel64_lin"\n'
-        s += f"/home/s/bin/mpirun -np {ppn} $VASP\n"
+        
+        s += f"for ((i=1;i<={steps};i++))\n"
+        s += f"do\n"
+        s += f"    cp INCAR.$i INCAR\n"
+        s += f"    /home/s/bin/mpirun -np {ppn} $VASP\n"
+        s += f"    cp CONTCAR POSCAR\n"
+        s += f"    cp CONTCAR CONTCAR.$i\n"
+        s += f"    cp OSZICAR OSZICAR.$i\n"
+        s += f"    cp OUTCAR OUTCAR.$i\n"
+        s += f"    cp XDATCAR XDATCAR.$i\n"
+        s += f"done\n"
     elif run_this == "rings":
         s += f"RINGS=/home/rynik/Software/rings/bin/rings\n"
         # need to input twice y when auto cutoff determination

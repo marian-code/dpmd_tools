@@ -14,7 +14,7 @@ from shutil import copy2, rmtree
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
 from ase.io import write
-from dpmd_tools.dispatchers import Dispatcher
+from .dispatchers import Dispatcher
 
 from ._remote_batch_run import RemoteBatchRun
 

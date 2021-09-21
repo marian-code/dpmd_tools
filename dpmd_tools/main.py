@@ -580,6 +580,12 @@ def remote_recompute_parser(parser: argparse.ArgumentParser):
         type=str,
         required=True,
     )
+    parser.add_argument(
+        "-c",
+        "--failed-continue",
+        action="store_true",
+        help="try to continue the jobs that faield due to reaching max number of steps"
+    )
 
 
 def remote_analyse_parser(parser: argparse.ArgumentParser):
@@ -688,6 +694,14 @@ def get_remote_parser():
         help="set maximum number of jobs in queue for each server. Can be input as a "
         "list with value for each server in corresponding order or as one number that "
         "will be same for all",
+    )
+    p.add_argument(
+        "-kp",
+        "--kpoint-density",
+        type=int,
+        default=20,
+        help="Set the required K point density. This argument is exactly equal to R_k "
+        "parameter mentioned in VASP docs: https://www.vasp.at/wiki/index.php/KPOINTS"
     )
 
     return p
