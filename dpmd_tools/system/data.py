@@ -16,6 +16,8 @@ from dpmd_tools.utils import split_into
 from loky import get_reusable_executor
 from tqdm import tqdm
 from typing_extensions import Literal
+from shutil import move, copy2, rmtree
+from os import fspath
 
 from .flavours import (AllSelectedError, ClusteredSystem, MaskedSystem,
                        SelectedSystem)
@@ -44,6 +46,7 @@ class MultiSystemsVar(MultiSystems, Generic[_SYS_TYPE]):
     def to_deepmd_npy(
         self,
         folder: Path,
+        dp_version: int,
         set_size: Union[int, list, Literal["auto"]] = 5000,
         prec=np.float32,
     ):
@@ -76,6 +79,24 @@ class MultiSystemsVar(MultiSystems, Generic[_SYS_TYPE]):
 
         for ss, (system_name, system) in dump_job:
             system.to_deepmd_npy(folder / system_name, set_size=ss, prec=prec)
+
+            if dp_version == 2:
+                test_folder = folder / f"{system_name}_test"
+                if test_folder.is_dir():
+                    rmtree(test_folder)
+                test_folder.mkdir(exist_ok=True, parents=True)
+                move(
+                    fspath(self._get_last_set(folder / system_name)),
+                    fspath(test_folder)
+                )
+                for raw in (folder / system_name).glob("*.raw"):
+                    copy2(raw, test_folder)
+
+    @staticmethod
+    def _get_last_set(path: Path) -> Path:
+        sets = [p for p in path.glob("set.*")]
+        sets.sort(key=lambda x: int(x.name.split(".")[1]))
+        return sets[-1]
 
     def __setitem__(self, key: str, system: _SYS_TYPE):
         self.systems[key] = system

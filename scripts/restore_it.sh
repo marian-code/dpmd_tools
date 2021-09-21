@@ -1,0 +1,1 @@
+python -c "import numpy as np; a = 'ea_20GPa_zero_step/deepmd_data/all/Ge8/used.raw'; d = np.loadtxt(a) ; np.savetxt(a, np.atleast_2d(np.zeros(d.shape[0])).T, fmt='%i')"

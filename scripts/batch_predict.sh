@@ -1,16 +1,16 @@
 paths=(
-    md_bc8_600K
+    #md_bc8_600K
     #md_bct5_600K_0GPa
     #md_btin_600K
     #md_cd_600K
     #md_hex_dia_600K
     #md_Imma_600K
     #md_R8_600K
-    #md_sc_50K
-    #md_sc_150K
+    #!md_sc_50K
+    #!md_sc_150K
     #md_sh_600K
     #md_ST12_600K
-    #md_Ge136_10kbar
+    md_Ge136_10kbar
     #md_Ge136_11kbar
     #md_Ge136_12.5kbar
     #md_Ge136_15kbar
@@ -18,14 +18,17 @@ paths=(
     #md_Ge136_30kbar
     #md_Ge136_50kbar
     #md_Ge136_267
-    #md_Ge136_269
+    md_Ge136_269
     #md_Ge136_274
     #mtd_Ge136_50kbar
-    #mtd_Ge136_100kbar
-    #####!ea_Ge8_0GPa
-    #ea_recompute_0GPa
-    #ea_recompute_10GPa
-    #ea_recompute_20GPa
+    mtd_Ge136_100kbar
+    #!ea_Ge8_0GPa
+    #!ea_recompute_0GPa
+    #!ea_recompute_10GPa
+    #!ea_recompute_20GPa
+    ea_0GPa_zero_step
+    #ea_10GPa_zero_step
+    #ea_20GPa_zero_step
     #continued_83_100kbar
     #continued_83_100kbar_heat
 )
@@ -46,16 +49,16 @@ for index in ${!paths[*]}; do
         --energy -5 -2 \
         --per-atom \
         --mode append \
-        --save no\
+        --save yes\
         --max-select 5% \
         --cache-predictions \
         --block-pbs \
         --dev-force 0.1 1 \
         --std-method \
         --fingerprint-use \
-        --graphs ../../../selective_train2/gen5/train5_[5-8]/ge_all*.pb \
+        --graphs ../../../selective_train3/gen3/train3_[1-4]/ge_all*.pb \
         --volume 10 31 \
-        --wait-for ../../../selective_train2/gen5/train5_5/ge_all_s5_5.pb ../../../selective_train2/gen5/train5_6/ge_all_s5_6.pb ../../../selective_train2/gen5/train5_7/ge_all_s5_7.pb ../../../selective_train2/gen5/train5_8/ge_all_s5_8.pb
+        --wait-for 4
     cd ../..
 done
 

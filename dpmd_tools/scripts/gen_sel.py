@@ -1,4 +1,3 @@
-from numpy.core.defchararray import array, title
 import plotly.graph_objects as go
 from pathlib import Path
 from dpdata import LabeledSystem
@@ -8,6 +7,7 @@ from itertools import zip_longest
 import plotly.express as px
 from PIL import ImageColor
 import pandas as pd
+from random import random
 
 COLOR = px.colors.qualitative.Dark24 + px.colors.qualitative.Dark24
 MODELS_PER_GEN = 4
@@ -78,9 +78,12 @@ def plot_one(fig: go.Figure, x, data, error, name, color, linewidth):
     )
 
 
+dirs = list(Path.cwd().glob("*"))
+dirs.sort(key=lambda x: x.name)
+
 force_stats = {}
 system_sizes = {}
-for j, d in enumerate(Path.cwd().glob("*")):
+for j, d in enumerate(dirs):
 
     d = d / "deepmd_data"
     if not d.is_dir() or len(list(d.glob("cache*"))) == 0:
@@ -125,7 +128,7 @@ for j, d in enumerate(Path.cwd().glob("*")):
 
     # record system size so the weighted average can be computed
     system_sizes[d.parent.name] = size
-    if j > 1000:  # for testing
+    if j > 200:  # for testing
         break
 
 # make one multiindex dataframe from distionary of individual dataframes
@@ -138,6 +141,8 @@ system_sizes = {
     name: system_sizes[name] for name in unique(force_stats.columns.get_level_values(0))
 }
 
+shift = -0.01
+shift_step = 0.02 / force_stats.shape[1] / 2
 # plot individual systems prediction error, iterate over system names in dataframe
 # which are sored in level 0 column labels
 fig = go.Figure()
@@ -145,13 +150,14 @@ for (name, stats), c in zip(force_stats.groupby(level=0, axis="columns"), COLOR)
     stats = stats[name]
     plot_one(
         fig,
-        stats.index,
+        stats.index.to_numpy() + shift,
         stats["mean"].to_numpy(),
         stats["std"].to_numpy(),
         name,
         c,
         system_sizes[name] / 10000,
     )
+    shift += shift_step
 
 # use cross section locator to select all columns with appropriate quantity
 # these are on sublevel 1. then do a men on these columns (column -> axis==1)

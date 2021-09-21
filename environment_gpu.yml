@@ -1,6 +1,6 @@
-name: dpmd_gpu
+name: dpmd_gpu_v2.0
 channels:
-- deepmodeling
+- https://conda.deepmodeling.org
 dependencies:
 - python>=3.6
 - anaconda
@@ -8,9 +8,13 @@ dependencies:
 - pandas
 - pip
 - deepmd-kit=*=*gpu
-- lammps-dp=*=*gpu
+- libdeepmd=*=*gpu
+- lammps-dp
+- cudatoolkit=11.3
 - pip:
   - dpdata
   - ase
+  - loky
+  - typing_extensions
   - tqdm
   - ssh-utilities>=0.8.8

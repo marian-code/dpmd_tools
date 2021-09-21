@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
-from matplotlib.ticker import MultipleLocator, AutoMinorLocator
+from matplotlib.ticker import AutoMinorLocator
 import numpy as np
 import plotly.graph_objects as go
 from ase import Atoms, io, units
@@ -38,7 +38,7 @@ from dpmd_tools.utils import get_remote_files
 from tqdm import tqdm
 import pandas as pd
 from ase.spacegroup import get_spacegroup, Spacegroup
-from ssh_utilities import Connection, path_wildcard_expand
+from ssh_utilities import Connection
 
 sys.path.append("/home/rynik/OneDrive/dizertacka/code/rw")
 
@@ -48,6 +48,9 @@ try:
     from plotly_theme_setter import *
 except ImportError:
     print("cannot use compare graph script, custom modules are missing")
+    ANGSTROM = "A"
+    POW3 = "3"
+    DELTA = "d"
 
 init(autoreset=True)
 
@@ -607,7 +610,7 @@ def get_coverage(data_dir: Path, types: str = "type.raw"):
                 (-1, 3, 3)
             )
         else:
-            energies = np.loadtxt((d / "energy.raw").open("rb"))
+            energies = np.loadtxt((d / "energy.raw").open("rb")) / n_atoms
             cells = np.loadtxt((d / "box.raw").open("rb")).reshape(-1, 3, 3)
 
         volumes = np.abs(np.linalg.det(cells)) / n_atoms
@@ -615,6 +618,8 @@ def get_coverage(data_dir: Path, types: str = "type.raw"):
         if len(d.relative_to(data_dir).parts) == 1:
             # data/md_cd/...raw
             name = d.name.replace("data_", "")
+        elif len(d.relative_to(data_dir).parts) == 4 and "all" in str(d):
+            name = d.parent.parent.parent.name
         else:
             # data/md_cd/Ge136/...raw
             name = d.parent.name.replace("data_", "")
@@ -695,12 +700,12 @@ def run(args, graph: Optional[Path]):
     fig_ev.update_layout(
         xaxis_title=f"V [{ANGSTROM}{POW3} / atom]",
         yaxis_title="E [eV / atom]",
-        template="minimovka",
+        #template="minimovka",
     )
     fig_hp.update_layout(
         xaxis_title=f"p [GPa]",
         yaxis_title=f"{DELTA}H [eV / atom], {collect_dirs[0].name} is reference",
-        template="minimovka",
+        #template="minimovka",
     )
     ax_hp.set(
         xlabel=f"p [GPa]",
@@ -741,7 +746,7 @@ def run(args, graph: Optional[Path]):
             for name, cdata in coverage_data.items():
                 fig_ev.add_trace(
                     go.Scattergl(
-                        x=cdata["volume"], y=cdata["energy"], mode="markers", name=name
+                        x=cdata["volume"], y=cdata["energy"], mode="markers", name=name, text=list(range(len(cdata["volume"])))
                     )
                 )
 
