@@ -16,7 +16,7 @@ from dpmd_tools.utils import split_into
 from loky import get_reusable_executor
 from tqdm import tqdm
 from typing_extensions import Literal
-from shutil import move, copy2
+from shutil import move, copy2, rmtree
 from os import fspath
 
 from .flavours import (AllSelectedError, ClusteredSystem, MaskedSystem,
@@ -81,6 +81,8 @@ class MultiSystemsVar(MultiSystems, Generic[_SYS_TYPE]):
 
             if dp_version == 2:
                 test_folder = folder / f"{system_name}_test"
+                if test_folder.is_dir():
+                    rmtree(test_folder)
                 test_folder.mkdir(exist_ok=True, parents=True)
                 move(
                     fspath(self._get_last_set(folder / system_name)),
