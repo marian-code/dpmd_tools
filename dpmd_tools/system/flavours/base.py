@@ -107,7 +107,7 @@ class BaseSystem(LabeledSystem):
     def append(self, system: "BaseSystem"):
         """Manipulates also arrays defined by additional_arrays beyond standard set."""
 
-        print("arrays", self._additional_arrays)
+        #print("arrays", self._additional_arrays)
         if not isinstance(system, type(self)):
             raise TypeError(
                 f"The appending system is of wrong type, expected: "
@@ -139,7 +139,7 @@ class BaseSystem(LabeledSystem):
                         (self.data[a], system.data[a]), axis=0
                     )
 
-                print(self.data[a].shape, system.data[a].shape)
+                #print(self.data[a].shape, system.data[a].shape)
 
     def sub_system(self, f_idx: Union[np.ndarray, int, slice]) -> "BaseSystem":
         """Manipulates also arrays defined by additional_arrays attribute.

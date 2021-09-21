@@ -104,9 +104,9 @@ def wait(graphs: str, number: int):
             return
         else:
             print(
-                f"{Fore.GREEN}Waiting for {Fore.RESET}{number - len(present)} remaining"
-                f"{Fore.GREEN} graphs to become available {Fore.RESET}{loader[0]}",
-                end="\r"
+                f"{Fore.GREEN}Waiting for {Fore.RESET}{number - len(present)}"
+                f"{Fore.GREEN} remaining graphs to become available before we begin"
+                f"{Fore.RESET}{loader[0]}", end="\r"
             )
             loader.rotate(1)
             sleep(0.15)
