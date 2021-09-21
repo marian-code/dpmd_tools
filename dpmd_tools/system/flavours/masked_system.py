@@ -1,6 +1,9 @@
 """Helper module with dpdata subclasses."""
 
 import os
+import warnings
+from contextlib import suppress
+from math import ceil
 from pathlib import Path
 from shutil import copy2
 from typing import TYPE_CHECKING, List, Optional, Union
@@ -363,137 +366,113 @@ class MaskedSystem(BaseSystem):
         else:
             np.savetxt(folder / "used.raw", self.data["used"], fmt="%d")
 
-    def predict(self, dp: Path):
+    def predict(self, dp: Union[Path, str], workers: int = 2):
         """Predict energies and forces by deepmd-kit for yet unselected structures.
 
         Parameters
         ----------
         dp : deepmd.DeepPot or str
             The deepmd-kit potential class or the filename of the model.
-
+        workers: int
+            usually 2 is good. One process rarely can utilize whole GPU. Beware,
+            do not use so much processes that will utilize GPU to 100%. You will
+            take a significant performance hit and the computation will be slower
+            than on on process.
         Returns
         -------
         labeled_sys MaskedSystem
             The labeled system.
         """
-        os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
-        try:
-            # DP 1.x
-            import deepmd.DeepPot as DeepPot
-        except ModuleNotFoundError:
-            # DP 2.x
-            from deepmd.infer import DeepPot
-
-        self.deeppot = DeepPot(str(dp))
-        type_map = self.deeppot.get_type_map()
-        ori_sys = self.copy()
-        ori_sys.sort_atom_names(type_map=type_map)
-        atype = ori_sys["atom_types"]
-
-        labeled_sys = self.copy()
-
-        # these were already selected in previous iterations there is no need to
-        # compute for these indices since they wont be selected again anyway
-        dont_recompute_idx = self.get_subsystem_indices()
-
-        for idx in tqdm(
-            range(self.get_nframes()), total=self.get_nframes(), ncols=100, leave=False
-        ):
-
-            ss = super(MaskedSystem, self).sub_system(idx)
-
-            coord = ss["coords"].reshape((-1, 1))
-            if not ss.nopbc:
-                cell = ss["cells"].reshape((-1, 1))
-            else:
-                cell = None
-
-            data = ss.data
-
-            if idx in dont_recompute_idx:
-                # already selected in previous iteration -> skip
-                # create fake data, it does not matter since these will be skipped
-                # anyway because of the mask
-                data["energies"] = np.zeros((1, 1))
-                data["forces"] = np.zeros((1, ss.get_natoms(), 3))
-                data["virials"] = np.zeros((1, 3, 3))
-            else:
-                e, f, v = self.deeppot.eval(coord, cell, atype)
-                data["energies"] = e.reshape((1, 1))
-                data["forces"] = f.reshape((1, -1, 3))
-                data["virials"] = v.reshape((1, 3, 3))
-
-            labeled_sys.data["energies"][idx] = data["energies"]
-            labeled_sys.data["forces"][idx] = data["forces"]
-            labeled_sys.data["virials"][idx] = data["virials"]
-        return labeled_sys
-
-    # ! not ready for deployment yet!!!
-    def parallel_predict(self, dp: Path, workers: int):
-
         def _get_atype(dp: Path):
 
             os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
-            import deepmd.DeepPot as DeepPot
+            try:
+                # DP 1.x
+                import deepmd.DeepPot as DeepPot
+            except ModuleNotFoundError:
+                # DP 2.x
+                from deepmd.infer import DeepPot
+
 
             deeppot = DeepPot(str(dp))
 
             type_map = deeppot.get_type_map()
             ori_sys = self.copy()
             ori_sys.sort_atom_names(type_map=type_map)
+            del deeppot
 
             return ori_sys["atom_types"]
 
-        def _worker(idx: int):
+        def _get_chunks(lst, n):
+            """Yield successive n-sized chunks from lst."""
+            for i in range(0, len(lst), n):
+                yield lst[i:i + n]
+
+        def _worker(indices: List[int], pos: int):
 
             os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
-            import deepmd.DeepPot as DeepPot
+            try:
+                # DP 1.x
+                import deepmd.DeepPot as DeepPot
+            except ModuleNotFoundError:
+                # DP 2.x
+                from deepmd.infer import DeepPot
 
             deeppot = DeepPot(str(dp))
 
-            ss = super(MaskedSystem, self).sub_system(idx)
+            predicted = {}
+            for idx in tqdm(indices, leave=False, ncols=100, position=pos):
 
-            coord = ss["coords"].reshape((-1, 1))
-            if not ss.nopbc:
-                cell = ss["cells"].reshape((-1, 1))
-            else:
-                cell = None
+                ss = super(MaskedSystem, self).sub_system(idx)
 
-            data = ss.data
+                coord = ss["coords"].reshape((-1, 1))
+                if not ss.nopbc:
+                    cell = ss["cells"].reshape((-1, 1))
+                else:
+                    cell = None
 
-            if idx in dont_recompute_idx:
-                # already selected in previous iteration -> skip
-                # create fake data, it does not matter since these will be skipped
-                # anyway because of the mask
-                data["energies"] = np.zeros((1, 1))
-                data["forces"] = np.zeros((1, ss.get_natoms(), 3))
-                data["virials"] = np.zeros((1, 3, 3))
-            else:
-                e, f, v = deeppot.eval(coord, cell, atype)
-                data["energies"] = e.reshape((1, 1))
-                data["forces"] = f.reshape((1, -1, 3))
-                data["virials"] = v.reshape((1, 3, 3))
+                data = ss.data
 
-            return (idx, data)
+                if idx in dont_recompute_idx:
+                    # already selected in previous iteration -> skip
+                    # create fake data, it does not matter since these will be skipped
+                    # anyway because of the mask
+                    data["energies"] = np.zeros((1, 1))
+                    data["forces"] = np.zeros((1, ss.get_natoms(), 3))
+                    data["virials"] = np.zeros((1, 3, 3))
+                else:
+                    e, f, v = deeppot.eval(coord, cell, atype)
+                    data["energies"] = e.reshape((1, 1))
+                    data["forces"] = f.reshape((1, -1, 3))
+                    data["virials"] = v.reshape((1, 3, 3))
+
+                predicted[idx] = data
+
+            return predicted
 
         dont_recompute_idx = self.get_subsystem_indices()
+
+        chunks = _get_chunks(
+            list(range(self.get_nframes())),
+            int(ceil(self.get_nframes() / workers))
+        )
+
         atype = _get_atype(dp)
 
         pool = Parallel(n_jobs=workers, backend="loky")
         exec = delayed(_worker)
 
         labeled_sys = self.copy()
-        data = pool(
-            exec(idx)
-            for idx in tqdm(
-                range(self.get_nframes()),
-                total=self.get_nframes(),
-                ncols=100,
-                leave=False,
-            )
-        )
+        # joblib does sometimes leak some resources, this should not be a problem
+        # but it clutters the screen https://github.com/joblib/joblib/issues/1076
+        with suppress(KeyError), warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning)
+            data = pool(exec(chunk, i) for i, chunk in enumerate(chunks))
 
-        for idx, d in data:
-            labeled_sys.data["energies"][idx] = d["energies"]
-            labeled_sys.data["forces"][idx] = d["forces"]
-            labeled_sys.data["virials"][idx] = d["virials"]
+        for chunk in data:
+            for idx, d in chunk.items():
+                labeled_sys.data["energies"][idx] = d["energies"]
+                labeled_sys.data["forces"][idx] = d["forces"]
+                labeled_sys.data["virials"][idx] = d["virials"]
+
+        return labeled_sys

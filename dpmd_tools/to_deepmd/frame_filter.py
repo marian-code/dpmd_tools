@@ -89,11 +89,9 @@ class ApplyConstraint:
                             f"    - {Fore.YELLOW}could not find cached predictions: "
                             f"{Fore.RESET}{cache_dir.relative_to(WORK_DIR)}"
                         )
-                        system = self.system.predict(g)
-                        #system = self.system.parallel_predict(g, 4)
+                        system = self.system.predict(g, workers=2)
                 else:
-                    system = self.system.predict(g)
-                    #system = self.system.parallel_predict(g, 4)
+                    system = self.system.predict(g, workers=2)
 
                 self._predictions.append(system)
 
