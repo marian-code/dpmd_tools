@@ -374,13 +374,10 @@ def to_deepmd_parser(parser: argparse.ArgumentParser):
     parser.add_argument(
         "-w",
         "--wait-for",
-        type=str,
-        nargs="*",
+        type=int,
         default=None,
-        help="wait for some file(s) to be present typically frozen graph model(s) and "
-        "only then start computation. Accepts path to file or dir, if argument is "
-        "'graphs' then files from --graphs argument are used. You can also input more "
-        "paths or use wildcards and shell patterns",
+        help="wait for frozen graph model(s) to be present and only then start "
+        "computation. Accepts number graphs that have to exist on disk to begin."
     )
 
     parser.add_argument(

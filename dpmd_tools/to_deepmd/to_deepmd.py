@@ -68,7 +68,7 @@ def postporcess_args(args: dict):
 
     return args
 
-
+"""
 def wait(paths: List[Path]):
 
     loader = deque(["-", "/", "|", "\\"])
@@ -84,6 +84,28 @@ def wait(paths: List[Path]):
             print(
                 f"{Fore.GREEN}Waiting for {Fore.RESET}{names}{Fore.GREEN} to become "
                 f"available {Fore.RESET}{loader[0]}",
+                end="\r"
+            )
+            loader.rotate(1)
+            sleep(0.15)
+"""
+
+def wait(graphs: str, number: int):
+
+    loader = deque(["-", "/", "|", "\\"])
+
+    while True:
+        present = [g for graph in graphs for g in Path.cwd().glob(graph)]
+        names = [p.name for p in present]
+
+        if len(present) == number and all([p.exists() for p in present]):
+            print(f"Paths {names} are present starting computation")
+            sleep(5)
+            return
+        else:
+            print(
+                f"{Fore.GREEN}Waiting for {Fore.RESET}{number - len(present)} remaining"
+                f"{Fore.GREEN} graphs to become available {Fore.RESET}{loader[0]}",
                 end="\r"
             )
             loader.rotate(1)
@@ -220,10 +242,7 @@ def plot(multi_sys: MultiSystemsVar, chosen_sys: MultiSystemsVar, *, histogram: 
 def to_deepmd(args: dict):  # NOSONAR
 
     if args["wait_for"]:
-        if args["wait_for"] == ["graphs"]:
-            wait(args["graphs"])  # ! WRONG ! wildcard will not expand when files are not present
-        else:
-            wait([Path(g) for g in args["wait_for"]])
+        wait(args["graphs"], args["wait_for"])
 
     args = postporcess_args(args)
 
