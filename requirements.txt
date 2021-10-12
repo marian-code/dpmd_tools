@@ -11,3 +11,4 @@ tqdm>=4.47.0
 typing-extensions>=3.7.4.2
 loky
 pyyaml
+file_read_backwards

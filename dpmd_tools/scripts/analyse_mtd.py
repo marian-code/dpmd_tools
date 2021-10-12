@@ -281,6 +281,8 @@ def get_fes(
     stride,
     grid_CN,
     grid_V,
+    Nbin_CN,
+    Nbin_V,
     temperature,
     n_atoms,
 ):
@@ -773,6 +775,8 @@ def analyse_mtd(*, ev_only, **kwargs):
             stride,
             grid_CN,
             grid_V,
+            Nbin_CN,
+            Nbin_V,
             temperature,
             n_atoms,
         )
