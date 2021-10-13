@@ -2,7 +2,7 @@
 
 import os
 import warnings
-from contextlib import suppress
+from contextlib import redirect_stderr, redirect_stdout, suppress
 from math import ceil
 from pathlib import Path
 from shutil import copy2
@@ -120,7 +120,7 @@ class MaskedSystem(BaseSystem):
 
     data: "_DATA"
     has_used: bool = True
-    _additional_arrays = ["used"]    
+    _additional_arrays = ["used"]
 
     # * custom methods *****************************************************************
     def _post_init(self, **kwargs):
@@ -383,6 +383,7 @@ class MaskedSystem(BaseSystem):
         labeled_sys MaskedSystem
             The labeled system.
         """
+
         def _get_atype(dp: Path):
 
             os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
@@ -392,7 +393,6 @@ class MaskedSystem(BaseSystem):
             except ModuleNotFoundError:
                 # DP 2.x
                 from deepmd.infer import DeepPot
-
 
             deeppot = DeepPot(str(dp))
 
@@ -406,7 +406,7 @@ class MaskedSystem(BaseSystem):
         def _get_chunks(lst, n):
             """Yield successive n-sized chunks from lst."""
             for i in range(0, len(lst), n):
-                yield lst[i:i + n]
+                yield lst[i : i + n]
 
         def _worker(indices: List[int], pos: int):
 
@@ -414,9 +414,11 @@ class MaskedSystem(BaseSystem):
             try:
                 # DP 1.x
                 import deepmd.DeepPot as DeepPot
+                v2 = False
             except ModuleNotFoundError:
                 # DP 2.x
                 from deepmd.infer import DeepPot
+                v2 = True
 
             deeppot = DeepPot(str(dp))
 
@@ -424,13 +426,6 @@ class MaskedSystem(BaseSystem):
             for idx in tqdm(indices, leave=False, ncols=100, position=pos):
 
                 ss = super(MaskedSystem, self).sub_system(idx)
-
-                coord = ss["coords"].reshape((-1, 1))
-                if not ss.nopbc:
-                    cell = ss["cells"].reshape((-1, 1))
-                else:
-                    cell = None
-
                 data = ss.data
 
                 if idx in dont_recompute_idx:
@@ -441,6 +436,15 @@ class MaskedSystem(BaseSystem):
                     data["forces"] = np.zeros((1, ss.get_natoms(), 3))
                     data["virials"] = np.zeros((1, 3, 3))
                 else:
+                    coord = ss["coords"].reshape((-1, 1))
+                    if not ss.nopbc:
+                        if v2:
+                            cell = ss["cells"].reshape((1, -1))
+                        else:
+                            cell = ss["cells"].reshape((-1, 1))
+                    else:
+                        cell = None
+
                     e, f, v = deeppot.eval(coord, cell, atype)
                     data["energies"] = e.reshape((1, 1))
                     data["forces"] = f.reshape((1, -1, 3))
@@ -453,8 +457,7 @@ class MaskedSystem(BaseSystem):
         dont_recompute_idx = self.get_subsystem_indices()
 
         chunks = _get_chunks(
-            list(range(self.get_nframes())),
-            int(ceil(self.get_nframes() / workers))
+            list(range(self.get_nframes())), int(ceil(self.get_nframes() / workers))
         )
 
         atype = _get_atype(dp)
@@ -465,9 +468,10 @@ class MaskedSystem(BaseSystem):
         labeled_sys = self.copy()
         # joblib does sometimes leak some resources, this should not be a problem
         # but it clutters the screen https://github.com/joblib/joblib/issues/1076
-        with suppress(KeyError), warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=UserWarning)
-            data = pool(exec(chunk, i) for i, chunk in enumerate(chunks))
+        with open(os.devnull, "w") as f:
+            with suppress(KeyError), warnings.catch_warnings(), redirect_stderr(f), redirect_stdout(f):
+                warnings.filterwarnings("ignore", category=UserWarning)
+                data = pool(exec(chunk, i) for i, chunk in enumerate(chunks))
 
         for chunk in data:
             for idx, d in chunk.items():

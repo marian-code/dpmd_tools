@@ -171,6 +171,8 @@ class BlockPBS:
         if self._deleted:
             return
 
+        self.script.unlink()
+
         qdel = which("qdel")
         if not qdel:
             raise RuntimeWarning("could not get qdel executable")
@@ -181,6 +183,5 @@ class BlockPBS:
             if result.stdout.strip() != "" or result.returncode != 0:
                 warn(f"could not delete PBS job {self.jid}", UserWarning)
             else:
-                self.script.unlink()
                 self._deleted = True
                 print("PBS block job deleted")

@@ -5,6 +5,7 @@ Can be easily extended by writing new parser functions like e.g.
 """
 
 import sys
+import re
 from collections import deque
 from pathlib import Path
 from time import sleep
@@ -32,6 +33,8 @@ init(autoreset=True)
 
 def postporcess_args(args: dict):
 
+    IS_FLOAT_OR_INT = re.compile(r"\d*\.?\d*\%?")
+
     args["graphs"] = get_remote_files(args["graphs"], remove_after=True)
 
     if args["parser"] == "lmp_traj_dev":
@@ -43,7 +46,7 @@ def postporcess_args(args: dict):
             raise ValueError("per atoms must be true in this mode")
 
     if args["max_select"] is not None:
-        if not args["max_select"].replace("%", "").isdigit():  # NOSONAR
+        if not IS_FLOAT_OR_INT.match(args["max_select"]):  # NOSONAR
             raise TypeError(
                 "--max-select argument was specified with wrong format, use number or %"
             )
@@ -68,27 +71,6 @@ def postporcess_args(args: dict):
 
     return args
 
-"""
-def wait(paths: List[Path]):
-
-    loader = deque(["-", "/", "|", "\\"])
-
-    names = [p.name for p in paths]
-
-    while True:
-        if all([p.exists() for p in paths]):
-            print(f"Paths {names} are present starting computation")
-            sleep(5)
-            return
-        else:
-            print(
-                f"{Fore.GREEN}Waiting for {Fore.RESET}{names}{Fore.GREEN} to become "
-                f"available {Fore.RESET}{loader[0]}",
-                end="\r"
-            )
-            loader.rotate(1)
-            sleep(0.15)
-"""
 
 def wait(graphs: str, number: int):
 
@@ -98,8 +80,8 @@ def wait(graphs: str, number: int):
         present = [g for graph in graphs for g in Path.cwd().glob(graph)]
         names = [p.name for p in present]
 
-        if len(present) == number and all([p.exists() for p in present]):
-            print(f"Paths {names} are present starting computation")
+        if len(present) >= number and all([p.exists() for p in present]):
+            print(f"Paths {', '.join(names)} are present starting computation")
             sleep(5)
             return
         else:
