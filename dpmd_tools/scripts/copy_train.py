@@ -7,6 +7,7 @@ import json
 import shutil
 import re
 import random
+import argcomplete
 
 WORK_DIR = Path.cwd()
 
@@ -52,12 +53,17 @@ def prepare(*, input: Path, output: Path, control: str, command: str):
         delete_files.add(f.name)
 
     delete_files.add("out.json")
+    delete_files.add("compress.json")
     for f in output.glob("*.pb"):
         delete_files.add(f.name)
+
+    delete_files.add("model-compression")
 
     for d in delete_files:
         try:
             (output / d).unlink()
+        except IsADirectoryError:
+            shutil.rmtree(output / d)
         except FileNotFoundError:
             pass
 
@@ -70,6 +76,8 @@ def prepare(*, input: Path, output: Path, control: str, command: str):
         iter_num = None
 
     for f in output.glob("*"):
+        if f.is_dir():
+            continue
         text = f.read_text()
 
         #  control files
@@ -92,7 +100,7 @@ def prepare(*, input: Path, output: Path, control: str, command: str):
             else:
                 text = re.sub(r"train_\d+", f"train_{train_num}", text)
                 text = re.sub(
-                    r"((?:-o|--output)\s*\S*?)\d+.pb",
+                    r"((?:-o|--output|-i|--input)\s*\S*?)\d+.pb",
                     r"\g<1>{}.pb".format(train_num),
                     text,
                 )
