@@ -21,6 +21,7 @@ __all__ = [
     "read_vasp_dir",
     "read_vasp_file",
     "read_dpmd_raw",
+    "read_dpmd_npy",
     "read_lmp_traj_dev",
     "read_outcar_relax",
 ]
@@ -79,6 +80,15 @@ def read_dpmd_raw(
     return [
         System(
             file_name=system_dir, fmt="deepmd/raw", force_iteration=force_iteration
+        )
+    ]
+
+def read_dpmd_npy(
+    system_dir: Path, force_iteration: Optional[int] = None, **kwargs
+) -> List[MaskedSystem]:
+    return [
+        System(
+            file_name=system_dir, fmt="deepmd/npy", force_iteration=force_iteration
         )
     ]
 
