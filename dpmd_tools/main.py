@@ -456,6 +456,20 @@ def ev_parser(parser: argparse.ArgumentParser):
         help="choose reference structure for H(p) plot",
     )
     parser.add_argument(
+        "-gc",
+        "--graph-cache",
+        type=str,
+        default=None,
+        help="input glob pattern to specify cache folders e.g.: ge_all_*.pb"
+    )
+    parser.add_argument(
+        "-et",
+        "--error-type",
+        type=str,
+        choices=("energy", "force"),
+        help="error type to display, required if '--graph-cache is specified'"
+    )
+    parser.add_argument(
         "-se",
         "--shift-ev",
         default=False,
