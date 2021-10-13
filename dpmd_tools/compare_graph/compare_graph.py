@@ -21,24 +21,25 @@ import re
 import shutil
 import subprocess
 import sys
-from operator import itemgetter
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
-import matplotlib.pyplot as plt
-from matplotlib.ticker import AutoMinorLocator
 import numpy as np
 import plotly.graph_objects as go
 from ase import Atoms, io, units
-from ase.eos import EquationOfState
 from ase.io import read
 from ase.io.lammpsdata import write_lammps_data
-from colorama import Fore, init
+from ase.spacegroup import get_spacegroup
+from colorama import init
 from dpmd_tools.utils import get_remote_files
+from matplotlib.ticker import AutoMinorLocator
 from tqdm import tqdm
-import pandas as pd
-from ase.spacegroup import get_spacegroup, Spacegroup
-from ssh_utilities import Connection
+
+from .abinit_plot import plot_abinit_ev, plot_abinit_hp
+from .predicted_plot import plot_predicted_ev, plot_predicted_hp
+from . import COLORS
+from .coverage_plot import plot_coverage_data
+from .mtd_traj_plot import plot_mtd_data
 
 sys.path.append("/home/rynik/OneDrive/dizertacka/code/rw")
 
@@ -54,22 +55,6 @@ except ImportError:
 
 init(autoreset=True)
 
-COLORS = (
-    "black",
-    "blue",
-    "red",
-    "green",
-    "purple",
-    "cyan",
-    "goldenrod",
-    "gray",
-    "lightpink",
-    "firebrick",
-    "limegreen",
-    "navy",
-    "indigo",
-    "khaki",
-)
 WORK_DIR = Path.cwd()
 
 
@@ -249,404 +234,6 @@ def collect_vasp(collect_dirs: List[Path]):
         )
 
 
-def plot_mpl(
-    collect_dirs: List[Path],
-    eos: str,
-    lammpses: Tuple[str, ...],
-    labels: Tuple[str, ...],
-):
-
-    for wd, c in zip(collect_dirs, COLORS[: len(collect_dirs)]):
-
-        vasp_data = np.loadtxt(wd / "vasp" / "vol_stress.txt", skiprows=1, unpack=True)
-
-        vasp_state = EquationOfState(vasp_data[0], vasp_data[1], eos=eos)
-        x, y = itemgetter(4, 5)(vasp_state.getplotdata())
-
-        plt.scatter(vasp_data[0], vasp_data[1], s=25, c=c)
-        plt.plot(
-            x, y, label=f"{wd} - Ab initio (VASP)", color=c, linestyle="-", linewidth=2
-        )
-
-        for l, lab, ls in zip(lammpses, labels, ("", ":", "-.", "-")):
-            lmps_data = np.loadtxt(wd / l / "vol_stress.txt", skiprows=1, unpack=True)
-
-            lmps_state = EquationOfState(lmps_data[0], lmps_data[1], eos=eos)
-            x, y = itemgetter(4, 5)(lmps_state.getplotdata())
-            plt.scatter(lmps_data[0], lmps_data[1], s=25, c=c)
-            plt.plot(x, y, label=f"{wd} - {lab}", color=c, linestyle=ls, linewidth=2)
-
-    plt.xlabel("volume per atom")
-    plt.ylabel("energy per atom")
-    plt.title(
-        "E-V diagram for NNP, GAP and SNAP potentials vs " "Ab Initio calculations"
-    )
-
-    plt.tight_layout()
-
-    plt.legend()
-    plt.show()
-
-
-def plot_abinit_ev(
-    collect_dirs: List[Path], eos: str, shift_ref: bool
-) -> Tuple[go.Figure, Dict[str, float]]:
-
-    fig = go.Figure()
-    reference = None
-
-    for wd, c in zip(collect_dirs, COLORS[: len(collect_dirs)]):
-
-        vasp_data = pd.read_table(
-            wd / "vasp" / "vol_stress.txt",
-            sep=r"\s+",
-            names=["volume", "energy", "stress", "spg"],
-            header=0,
-            comment="#",
-        )
-
-        vasp_state = EquationOfState(
-            vasp_data["volume"].to_numpy(), vasp_data["energy"].to_numpy(), eos=eos
-        )
-        try:
-            v0, e0, _ = vasp_state.fit()
-        except RuntimeError:
-            print(f"Could not fit EOS for {wd}")
-            continue
-
-        if shift_ref:
-            if reference is None:
-                reference = {"v0": v0, "e0": e0}
-        else:
-            reference = {"v0": 1, "e0": 0}
-        x, y = itemgetter(4, 5)(vasp_state.getplotdata())
-
-        fig.add_trace(
-            go.Scattergl(  # type: ignore
-                x=x / reference["v0"],
-                y=y - reference["e0"],
-                name=f"{wd.name} - Ab initio (VASP)",
-                line=dict(color=c, width=3, dash="solid"),
-                legendgroup=f"vasp_{c}",
-            )
-        )
-        fig.add_trace(
-            go.Scattergl(  # type: ignore
-                x=vasp_data["volume"] / reference["v0"],
-                y=vasp_data["energy"] - reference["e0"],
-                hovertext=[
-                    f"{wd.name}<br>Ab initio (VASP)<br>p={p:.3f}<br>V={v:.3f}<br>"
-                    f"E={e:.3f}<br>spg={Spacegroup(int(s)).symbol:s}"
-                    for v, e, p, s in vasp_data.itertuples(index=False)
-                ],
-                hoverinfo="text",
-                mode="markers",
-                showlegend=False,
-                line=dict(color=c, width=3),
-                marker_size=15,
-                legendgroup=f"vasp_{c}",
-            )
-        )
-
-    return fig, reference
-
-
-class BM:
-    """Birch–Murnaghan equation of state.
-
-    References
-    ----------
-    https://en.wikipedia.org/wiki/Birch%E2%80%93Murnaghan_equation_of_state
-    """
-
-    def __init__(self, b0: float, bp: float, v0: float) -> None:
-        self.b0 = b0
-        self.bp = bp
-        self.v0 = v0
-
-    def __call__(self, volumes: np.ndarray) -> np.ndarray:
-
-        dV = self.v0 / volumes
-        press = (
-            (3 * self.b0)
-            / 2
-            * (np.power(dV, 7 / 3) - np.power(dV, 5 / 3))
-            * (1 + (3 / 4) * (self.bp - 4) * (np.power(dV, 2 / 3) - 1))
-        )
-        return press
-
-
-def plot_abinit_hp(collect_dirs: List[Path], *, eos: str, fit: bool) -> go.Figure:
-
-    fig = go.Figure()
-    figm, ax = plt.subplots()
-
-    reference = None
-
-    for wd, c in zip(collect_dirs, COLORS[: len(collect_dirs)]):
-
-        df = pd.read_table(
-            wd / "vasp" / "vol_stress.txt",
-            sep=r"\s+",
-            names=["volume", "energy", "stress", "spg"],
-            header=0,
-            comment="#",
-        )
-
-        if fit:
-            vasp_state = EquationOfState(
-                df["volume"].to_numpy(), df["energy"].to_numpy(), eos=eos
-            )
-            try:
-                vasp_state.fit()
-            except RuntimeError:
-                print(f"Could not fit EOS for {wd}")
-                continue
-            _, B0, BP, V0 = vasp_state.eos_parameters
-            print(wd.name, "------------------------")
-            print(f"B_0: {B0 / units.GPa:.2f}, B'_0: {BP:.2f}")
-            df["stress"] = BM(B0, BP, V0)(df["volume"].to_numpy()) / units.GPa
-
-        df = df.assign(enthalpy=df["energy"] + df["stress"] * units.GPa * df["volume"])
-
-        vasp_state = np.poly1d(np.polyfit(df["stress"], df["enthalpy"], 1))
-
-        # make reference from the first data point
-        if not reference:
-            reference = vasp_state
-            # ! testing
-            # def ref(x):
-            #    return np.zeros(x.shape)
-            # reference = ref
-
-        fig.add_trace(
-            go.Scattergl(  # type: ignore
-                x=df["stress"],
-                y=vasp_state(df["stress"]) - reference(df["stress"]),
-                name=f"{wd.name} - Ab initio (VASP)",
-                line=dict(color=c, width=3, dash="solid"),
-                marker=dict(size=15),
-                mode="markers+lines",
-                legendgroup=f"vasp_{c}",
-            )
-        )
-        fig.add_trace(
-            go.Scattergl(  # type: ignore
-                x=df["stress"],
-                y=df["enthalpy"] - reference(df["stress"]),
-                name=f"{wd.name} - Ab initio (VASP)",
-                mode="markers",
-                showlegend=False,
-                line=dict(color=c, width=3),
-                marker_size=25,
-                legendgroup=f"vasp_{c}",
-            )
-        )
-
-        fig.update_layout(xaxis=dict(tickmode="linear", tick0=0, dtick=10))
-
-        # ax.scatter(df["stress"], df["enthalpy"] - reference(df["stress"]), s=15, c=c)
-        ax.plot(
-            df["stress"],
-            vasp_state(df["stress"]) - reference(df["stress"]),
-            label=f"{wd.name} - Ab initio (VASP)",
-            color=c,
-            linestyle="solid",
-            linewidth=1,
-        )
-
-    return fig, reference, figm, ax
-
-
-def plot_predicted_hp(
-    collect_dirs: List[Path],
-    lammpses: Tuple[str, ...],
-    labels: Tuple[str, ...],
-    fig: go.Figure,
-    reference: np.poly1d,
-    *,
-    eos: str,
-    fit: bool,
-) -> go.Figure:
-
-    for wd, c in zip(collect_dirs, COLORS[: len(collect_dirs)]):
-        for l, lab, ls in zip(lammpses, labels, ("dash", "dot", "dashdot", "-")):
-            df = pd.read_table(
-                wd / l / "vol_stress.txt",
-                sep=r"\s+",
-                names=["volume", "energy", "stress"],
-                header=0,
-                comment="#",
-            )
-
-            if fit:
-                vasp_state = EquationOfState(
-                    df["volume"].to_numpy(), df["energy"].to_numpy(), eos=eos
-                )
-                vasp_state.fit()
-                _, B0, BP, V0 = vasp_state.eos_parameters
-                df["stress"] = BM(B0, BP, V0)(df["volume"].to_numpy()) / units.GPa
-
-            df = df.assign(
-                enthalpy=df["energy"] + df["stress"] * units.GPa * df["volume"]
-            )
-
-            lmps_state = np.poly1d(np.polyfit(df["stress"], df["enthalpy"], 1))
-
-            fig.add_trace(
-                go.Scattergl(
-                    x=df["stress"],
-                    y=lmps_state(df["stress"]) - reference(df["stress"]),
-                    name=f"{wd.name} - {lab}",
-                    line=dict(color=c, width=3, dash=ls),
-                    marker=dict(size=13, color="white", line=dict(width=2, color=c)),
-                    mode="markers+lines",
-                    legendgroup=c,
-                )
-            )
-            """
-            fig.add_trace(
-                go.Scattergl(
-                    x=df["stress"],
-                    y=df["enthalpy"] - reference(df["stress"]),
-                    name=f"{wd.name} - {lab}",
-                    mode="markers",
-                    showlegend=False,
-                    legendgroup=c,
-                    marker_line_width=3,
-                    marker_symbol="circle-open",
-                    marker_size=25,
-                    line=dict(color=c, width=3),
-                )
-            )
-            """
-
-    return fig
-
-
-def plot_predicted_ev(
-    collect_dirs: List[Path],
-    eos: str,
-    lammpses: Tuple[str, ...],
-    labels: Tuple[str, ...],
-    fig: go.Figure,
-    reference: Dict[str, float],
-) -> go.Figure:
-
-    for wd, c in zip(collect_dirs, COLORS[: len(collect_dirs)]):
-        for l, lab, ls in zip(lammpses, labels, ("dash", "dot", "dashdot", "-")):
-            lmps_data = pd.read_table(
-                wd / l / "vol_stress.txt",
-                sep=r"\s+",
-                names=["volume", "energy", "stress"],
-                header=0,
-                comment="#",
-            )
-
-            lmps_state = EquationOfState(
-                lmps_data["volume"].to_numpy(), lmps_data["energy"].to_numpy(), eos=eos
-            )
-            try:
-                x, y = itemgetter(4, 5)(lmps_state.getplotdata())
-            except RuntimeError:
-                print(f"{Fore.RED}Could not fit equation of state for {wd.name}")
-                continue
-            fig.add_trace(
-                go.Scattergl(  # type: ignore
-                    x=x / reference["v0"],
-                    y=y - reference["e0"],
-                    name=f"{wd.name} - {lab}",
-                    line=dict(color=c, width=3, dash=ls),
-                    legendgroup=c,
-                )
-            )
-            fig.add_trace(
-                go.Scattergl(  # type: ignore
-                    x=lmps_data["volume"] / reference["v0"],
-                    y=lmps_data["energy"] - reference["e0"],
-                    name=f"{wd.name} - {lab}",
-                    mode="markers",
-                    showlegend=False,
-                    legendgroup=c,
-                    marker_line_width=3,
-                    marker_symbol="circle-open",
-                    marker_size=15,
-                    line=dict(color=c, width=3),
-                )
-            )
-
-    return fig
-
-
-def get_coverage(data_dir: Path, types: str = "type.raw"):
-
-    print("finding directories")
-    dirs = [
-        d
-        for d in tqdm(data_dir.glob("**"), )
-        if (d / types).is_file() and "cache" not in str(d)
-        and "for_train" not in str(d)
-    ]
-
-    for i, d in enumerate(dirs):
-        print(f"{i:>2}. {d}")
-
-    iter_dirs: Iterator[Path] = tqdm(dirs, ncols=100, total=len(list(dirs)))
-
-    data: Dict[str, Dict[str, np.ndarray]] = {}
-    for d in iter_dirs:
-        if "minima" in str(d):
-            continue
-        iter_dirs.set_description(f"get coverage: {d.name}")
-        n_atoms = len((d / "type.raw").read_text().splitlines())
-        sets = sorted(d.glob("set.*"), key=lambda x: x.name.split(".")[1])
-
-        if sets:
-            energies = (
-                np.concatenate([np.load((s / "energy.npy").open("rb")) for s in sets])
-                / n_atoms
-            )
-            cells = np.vstack([np.load((s / "box.npy").open("rb")) for s in sets]).reshape(
-                (-1, 3, 3)
-            )
-        else:
-            energies = np.loadtxt((d / "energy.raw").open("rb")) / n_atoms
-            cells = np.loadtxt((d / "box.raw").open("rb")).reshape(-1, 3, 3)
-
-        volumes = np.abs(np.linalg.det(cells)) / n_atoms
-
-        if len(d.relative_to(data_dir).parts) == 1:
-            # data/md_cd/...raw
-            name = d.name.replace("data_", "")
-        elif len(d.relative_to(data_dir).parts) == 4 and "all" in str(d):
-            name = d.parent.parent.parent.name
-        else:
-            # data/md_cd/Ge136/...raw
-            name = d.parent.name.replace("data_", "")
-        if name in data:
-            data[name]["energy"] = np.concatenate((data[name]["energy"], energies))
-            data[name]["volume"] = np.concatenate((data[name]["volume"], volumes))
-        else:
-            data[name] = {"energy": energies, "volume": volumes}
-
-    return dict(sorted(data.items()))
-
-
-def get_mtd_runs(paths: List[str]):
-
-    paths = get_remote_files(paths, remove_after=True, same_names=True)
-
-    data = {}
-    for p in paths:
-        if len(p.suffixes) == 2:
-            name = p.suffixes[0][1:]
-        else:
-            name = p.parent.name
-        data[name] = np.load(p)
-
-    return data
-
-
 def run(args, graph: Optional[Path]):
     RECOMPUTE = args["recompute"]
     EQ = args["equation"]
@@ -719,36 +306,10 @@ def run(args, graph: Optional[Path]):
     figm_hp.legend(loc="upper left", bbox_to_anchor=(0.25, 0.35), borderaxespad=0.0)
 
     if MTD_RUNS:
-        mtd_data = get_mtd_runs(MTD_RUNS)
-
-        for name, mdata in mtd_data.items():
-            fig_ev.add_trace(
-                go.Scattergl(
-                    x=mdata["volume"], y=mdata["energy"], mode="markers", name=name
-                )
-            )
+        plot_mtd_data(fig_ev, MTD_RUNS)
 
     if TRAIN_DIR:
-        for t in TRAIN_DIR:
-            if "@" in t:
-                server, t = t.split("@")
-                local = False
-            else:
-                server = "LOCAL"
-                local = True
-
-            print(server, local)
-            with Connection(server, quiet=True, local=local) as c:
-                print(c)
-                path = c.pathlib.Path(t)
-                coverage_data = get_coverage(path)
-
-            for name, cdata in coverage_data.items():
-                fig_ev.add_trace(
-                    go.Scattergl(
-                        x=cdata["volume"], y=cdata["energy"], mode="markers", name=name, text=list(range(len(cdata["volume"])))
-                    )
-                )
+        plot_coverage_data(fig_ev, TRAIN_DIR, args["graph_cache"], args["error_type"])
 
     filename = f"({graph.stem}-{args['reference_structure']}).html"
 
