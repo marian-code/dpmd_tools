@@ -25,7 +25,9 @@ def input_parser() -> dict:
         help="choose directory from which will new MetaD dir be created",
     )
     p.add_argument(
-        "-o", "--output", type=Path, required=True, help="choose destination directory",
+        "-o", "--output", type=Path, help="choose destination directory. If left out "
+        "output dir will be placed in current directory "
+        "and its name will be same as input",
     )
     p.add_argument(
         "-g",
@@ -84,7 +86,7 @@ def input_parser() -> dict:
 def create_mtd(
     *,
     input: str,
-    output: Path,
+    output: Optional[Path],
     graphs: Optional[List[Path]] = None,
     job_name: Optional[str] = None,
     press: Optional[float] = None,
@@ -109,6 +111,9 @@ def create_mtd(
     if graphs:
         ignore.append("*.pb")
 
+    if not output:
+        output = Path.cwd() / Path(input).name
+
     # copy directory
     if "@" in input:
         server, input = input.split("@")
@@ -127,6 +132,7 @@ def create_mtd(
             graphs = list(Path.cwd().glob(str(graphs[0])))
 
         graphs = [g.resolve() for g in graphs]
+        print(graphs)
 
         # check graphs number must be at least 2
         if len(graphs) < 2:
@@ -137,6 +143,7 @@ def create_mtd(
         for g in graphs:
             (output / g.name).symlink_to(g)
             links.append(g.name)
+        print(links)
     else:
         links = [g.name for g in output.glob("*.pb")]
 
