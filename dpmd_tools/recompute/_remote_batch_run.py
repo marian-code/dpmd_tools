@@ -20,8 +20,16 @@ from shutil import move, rmtree
 from subprocess import CompletedProcess
 from threading import Lock, Thread
 from time import sleep
-from typing import (TYPE_CHECKING, ContextManager, Deque, Dict, List, Optional,
-                    Tuple, Union)
+from typing import (
+    TYPE_CHECKING,
+    ContextManager,
+    Deque,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Union,
+)
 
 from ase.atoms import Atoms
 from dpmd_tools.recompute.json_serializer import Job, deserialize, serialize
@@ -51,6 +59,9 @@ if TYPE_CHECKING:
     )
 
 JOB_ID = re.compile(r"(?:\"|\')(\S+)(?:\"|\')")
+
+FAILED = "failed"
+UNFINISHED = "unfinished"
 
 log = logging.getLogger(__name__)
 
@@ -90,6 +101,7 @@ class RemoteBatchRun:
     # classwide variables and constants initailization
     HOUSEKEEPING_INTERVAL: int = 300  # 5 minutes
     _housekeeping_counter: int = 0
+    EXCLUDE_DOWNLOAD_FILES = ()
 
     def __init__(
         self,
@@ -110,13 +122,16 @@ class RemoteBatchRun:
         self.SLICE = slice(start, stop)
         self.RECOMPUTE_FAILED = recompute_failed
         self.remote_settings = remote_settings
+        if len(hosts) == 1:
+            log.warning("Switching threading of as we have only one host")
+            threaded = False
         self.THREADED = threaded
         if threaded:
             self._LOCK = Lock()
         else:
             self._LOCK = nullcontext()
 
-        (self.WD / "failed").mkdir(exist_ok=True, parents=True)
+        (self.WD / FAILED).mkdir(exist_ok=True, parents=True)
 
         self.c = dict()
 
@@ -229,8 +244,10 @@ class RemoteBatchRun:
         if hosts is None:
             hosts = []
 
+        # minus 1 is for remote settings that are present in json on same key level
+        # as all other hosts
         with dump_file.open() as f:
-            restaring_n_hosts = len(json.load(f))
+            restaring_n_hosts = len(json.load(f)) - 1
 
         if restaring_n_hosts > len(hosts):
             inpt = input(
@@ -265,7 +282,6 @@ class RemoteBatchRun:
             dump_file,
             threaded=threaded,
         )
-        instance.computed, instance.failed = cls.get_finished_jobs(work_dir)
         return instance
 
     def _dump2disk(self):
@@ -276,23 +292,23 @@ class RemoteBatchRun:
 
     # * prepare data (optional override in subclass) ***********************************
     @staticmethod
-    def get_finished_jobs(work_dir: Path) -> Tuple[List[int], List[int]]:
+    def get_finished_jobs(
+        work_dir: Path, quiet: bool = False
+    ) -> Tuple[List[int], List[int]]:
         """Override to define custom behaviour."""
         log.info("Checking done jobs")
         # get only dirs with calculations
+        dirs = list(work_dir.glob("*/"))
         done_dirs = [
             int(d.name)
-            for d in tqdm(work_dir.glob("*/"))
+            for d in tqdm(dirs)
             if d.name.isdigit() and (d / "done").is_file()
         ]
 
         log.info("Checking failed jobs")
         # get failed dirs
-        failed_dirs = [
-            int(d.name)
-            for d in tqdm((work_dir / "failed").glob("*/"))
-            if d.name.isdigit()
-        ]
+        dirs = list(((work_dir / FAILED).glob("*/")))
+        failed_dirs = [int(d.name) for d in tqdm(dirs) if d.name.isdigit()]
 
         return done_dirs, failed_dirs
 
@@ -323,7 +339,7 @@ class RemoteBatchRun:
                     #                  f"skipping...")
                     continue
                 else:
-                    rmtree(self.WD / "failed" / str(i))
+                    rmtree(self.WD / FAILED / str(i))
 
             if i in running:
                 iter_atoms.write(f"{i} is currently running, skipping...")
@@ -409,7 +425,7 @@ class RemoteBatchRun:
             if server == "local":
                 submit_dir = prepare_dir
             else:
-                
+
                 submit_dir = c["remote_dir"] / f"{prepare_dir.name}"
                 c["conn"].shutil.upload_tree(prepare_dir, submit_dir, quiet=True)
 
@@ -488,7 +504,7 @@ class RemoteBatchRun:
                 conn.shutil.download_tree(
                     job.running_dir,
                     self.WD / job.running_dir.name,
-                    exclude="*POTCAR",
+                    exclude=self.EXCLUDE_DOWNLOAD_FILES,
                     quiet=True,
                     remove_after=True,  # TODO problem with permission with PBS created dirs, they cannot be removed
                 )
@@ -498,7 +514,7 @@ class RemoteBatchRun:
                 return True
 
         log.warning(f"could not download job {job.index}, marking as failed")
-        (self.WD / "failed" / job.running_dir.name).mkdir(exist_ok=True)
+        (self.WD / FAILED / job.running_dir.name).mkdir(exist_ok=True)
 
         return False
 
@@ -521,8 +537,8 @@ class RemoteBatchRun:
                 if not calc_time:
                     calc_dir = self.WD / job.running_dir.name
                     log.warning(f"Computation {job.index} failed !!!")
-                    rmtree(self.WD / "failed" / calc_dir.name, ignore_errors=True)
-                    move(fspath(calc_dir), fspath(self.WD / "failed" / calc_dir.name))
+                    rmtree(self.WD / FAILED / calc_dir.name, ignore_errors=True)
+                    move(fspath(calc_dir), fspath(self.WD / FAILED / calc_dir.name))
                     calc_time = 0.0
                 else:
                     log.info(
@@ -660,7 +676,10 @@ class RemoteBatchRun:
                 self._housekeeping_counter += 1
 
             self._update_runtimes()
-            if self._housekeeping_counter != 0 and self._housekeeping_counter % self.HOUSEKEEPING_INTERVAL == 0:
+            if (
+                self._housekeeping_counter != 0
+                and self._housekeeping_counter % self.HOUSEKEEPING_INTERVAL == 0
+            ):
                 self._housekeeping()
 
             # sleep 5 seconds before next check
@@ -773,6 +792,7 @@ class RemoteBatchRun:
             host["conn"].close(quiet=True)
 
     def handle_ctrl_c(self, sig, frame):
-        self._dump2disk()
         log.info("Aborted by user, exiting... Please allow a few seconds to finish")
+        log.info("dumping data to disk")
+        self._dump2disk()
         assert False, "abborted by user"

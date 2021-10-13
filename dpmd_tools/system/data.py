@@ -2,7 +2,7 @@
 
 from concurrent.futures import as_completed
 from pathlib import Path
-from typing import (Any, Callable, Generic, ItemsView, KeysView, List,
+from typing import (Any, Callable, Dict, Generic, ItemsView, KeysView, List,
                     NoReturn, Optional, TypeVar, Union, ValuesView)
 from warnings import warn
 
@@ -41,6 +41,7 @@ class MultiSystemsVar(MultiSystems, Generic[_SYS_TYPE]):
     Adds `pathlib.Path` compatibility and few other convenience methods.
     Also introduces better auto set partitioning.
     """
+    systems: Dict[str, _SYS_TYPE]
 
     def to_deepmd_npy(
         self,

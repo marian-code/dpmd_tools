@@ -22,6 +22,7 @@ class Job:
     running_dir: Union["SSHPath", Path]
     name: str
     SCAN: bool
+    steps: int
     submit_time: datetime
     run_time: float = 0.0
     retry: bool = False

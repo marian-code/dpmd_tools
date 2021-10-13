@@ -8,6 +8,7 @@ def batch_script_ibm(
     n_nodes: int,
     ident: str,
     run_this: str,
+    steps: int = 1,
     priority: bool = True,
     hour_length: int = 12,
 ) -> str:
@@ -40,10 +41,20 @@ def batch_script_ibm(
     s += "# @ task_affinity = core(1)\n"
     s += "# @ queue\n\n"
 
-    if run_this == "vasp-scan":
-        s += "mpiexec /gpfs/home/dominika/vasp.5.3.2.complex.27.10.14\n"
-    elif run_this == "vasp":
-        s += "mpiexec /gpfs/home/kohulak/Software/vasp.5.4.4-testing/bin/vasp_std\n"
+    if run_this.startswith("vasp"):
+        s += f"for ((i=1;i<={steps};i++))\n"
+        s += f"do\n"
+        s += f"    cp INCAR.$i INCAR\n"
+        if run_this == "vasp-scan":
+            s += "mpiexec /gpfs/home/dominika/vasp.5.3.2.complex.27.10.14\n"
+        elif run_this == "vasp":
+            s += "mpiexec /gpfs/home/kohulak/Software/vasp.5.4.4-testing/bin/vasp_std\n"
+        s += f"    cp CONTCAR POSCAR\n"
+        s += f"    cp CONTCAR CONTCAR.$i\n"
+        s += f"    cp OSZICAR OSZICAR.$i\n"
+        s += f"    cp OUTCAR OUTCAR.$i\n"
+        s += f"    cp XDATCAR XDATCAR.$i\n"
+        s += f"done\n"
     elif run_this == "rings":
         s += f"RINGS=/gpfs/home/rynik/Software/rings/bin/rings\n"
         # need to input twice y when auto cutoff determination
