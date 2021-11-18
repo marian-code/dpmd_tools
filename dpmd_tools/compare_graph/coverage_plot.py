@@ -142,7 +142,6 @@ def plot_coverage_data(
             local = True
 
         with Connection(server, quiet=True, local=local) as c:
-            #print(c)
             path = c.pathlib.Path(t)
             coverage_data = get_coverage(
                 path, graph_glob=graph_glob, error_type=error_type

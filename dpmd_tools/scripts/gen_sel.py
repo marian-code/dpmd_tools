@@ -180,15 +180,25 @@ def read_errors(
                 cache_dirs = grouper(cache_dirs, MODELS_PER_GEN)
                 for i, cd in enumerate(cache_dirs):
                     number = float(f"{key}.{i}")
-                    m, s, size = error_reader(cd, mask)
+                    try:
+                        m, s, size = error_reader(cd, mask)
+                    except FileNotFoundError as e:
+                        print(e)
+                        continue
+                    else:
+                        mean.append(m)
+                        std.append(s)
+                        generation.append(number)
+            else:
+                try:
+                    m, s, size = error_reader(cache_dirs, mask)
+                except FileNotFoundError as e:
+                    print(e)
+                    continue
+                else:
                     mean.append(m)
                     std.append(s)
-                    generation.append(number)
-            else:
-                m, s, size = error_reader(cache_dirs, mask)
-                mean.append(m)
-                std.append(s)
-                generation.append(float(key))
+                    generation.append(float(key))
 
         print("OK")
 
