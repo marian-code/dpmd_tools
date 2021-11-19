@@ -79,6 +79,7 @@ def input_parser() -> dict:
         "e.g. -t 1 2 2 must be three numbers",
     )
     p.add_argument("-w", "--walltime", type=int, help="set walltime for PBS script")
+    p.add_argument("-a", "--ace", action="store_true", default=False, help="alter ace simulation")
 
     return vars(p.parse_args())
 
@@ -95,6 +96,7 @@ def create_mtd(
     gauss_dep_stride: Optional[int] = None,
     transform: Optional[List[int]] = None,
     walltime: Optional[int] = None,
+    ace: bool = False,
 ):
 
     ignore = [
@@ -144,6 +146,8 @@ def create_mtd(
             (output / g.name).symlink_to(g)
             links.append(g.name)
         print(links)
+    elif ace:
+        pass
     else:
         links = [g.name for g in output.glob("*.pb")]
 
@@ -255,14 +259,17 @@ def create_mtd(
         # alter plummed input
         if "PLUMED" in text:
             print("altering plumed input")
-            # set coordination compute atom range
-            text = re.sub(
-                r"(COORDINATION\s+GROUPA=1-)\d+", r"\g<1>{}".format(len(atoms)), text
-            )
-            # set appropriate coeffiients for number of atoms
-            text = re.sub(
-                r"(COEFFICIENTS=)0\.\d+", r"\g<1>{:.6f}".format(1 / len(atoms)), text
-            )
+            if not ace:
+                # set coordination compute atom range
+                text = re.sub(
+                    r"(COORDINATION\s+GROUPA=1-)\d+", r"\g<1>{}".format(len(atoms)),
+                    text
+                )
+                # set appropriate coefficients for number of atoms
+                text = re.sub(
+                    r"(COEFFICIENTS=)0\.\d+", r"\g<1>{:.6f}".format(1 / len(atoms)),
+                    text
+                )
             # alter gaussian deposition stride
             if gauss_dep_stride is not None:
                 text = re.sub(r"(PACE=)\d+", r"\g<1>{}".format(gauss_dep_stride), text)
