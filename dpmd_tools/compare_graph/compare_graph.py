@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 import numpy as np
-import plotly.graph_objects as go
+import pandas as pd
 from ase import Atoms, io, units
 from ase.io import read
 from ase.io.lammpsdata import write_lammps_data
@@ -69,7 +69,12 @@ def mod_lmp_in(graph: Path, lmp_in: str = "in.lammps"):
     print("lammps input modified")
 
 
-def vasp_recompute(atom_style: str = "atomic", lmp_in: str = "in.lammps"):
+def vasp_recompute(
+    *,
+    lmp_binary: str,
+    atom_style: str = "atomic",
+    lmp_in: str = "in.lammps",
+):
 
     vasp: List[Path]
     vasp = [
@@ -80,7 +85,6 @@ def vasp_recompute(atom_style: str = "atomic", lmp_in: str = "in.lammps"):
         and not (d.parent.parent / ".noEV").is_file()
     ]
 
-    lmp_binary = shutil.which("lmp")
     print(f"using lmp binary: {lmp_binary}")
 
     vasp_job = tqdm(vasp, ncols=100, total=len(vasp))
@@ -130,7 +134,7 @@ def collect_data_dirs(base_dir: Path, reference: str):
     return collect_dirs
 
 
-def collect_lmp(collect_dirs: List[Path], lammpses: Tuple[str, ...]):
+def collect_lmp(collect_dirs: List[Path], lammpses: Tuple[str, ...], ace: bool):
 
     iter_dirs = tqdm(collect_dirs, ncols=100, total=len(collect_dirs))
 
@@ -148,15 +152,16 @@ def collect_lmp(collect_dirs: List[Path], lammpses: Tuple[str, ...]):
                 N = len(read(d / "data.out", format="lammps-data", style="atomic"))
                 en, vol, stress = read_lammps_out(d / "log.lammps")[:3]
                 stress *= units.bar / units.GPa
-                data.append([vol / N, (en / N), stress])
+                vol /= N
+                en /= N
+                if ace:  # weird shift that is present in CASTEP data
+                    en += 157.72725320
+                data.append([vol, en, stress])
 
-            data = np.array(data)
-
-            np.savetxt(
-                wd / "vol_stress.txt",
-                data[data[:, 0].argsort()],
-                header="# Volume Energy stress",
-                fmt="%.6f",
+            data = pd.DataFrame(data, columns=["volume", "energy", "stress"])
+            data.sort_values(by=["volume"], inplace=True)
+            data.to_csv(
+                wd / "vol_stress.txt", sep=" ", float_format="%.6f", index=False
             )
 
 
@@ -224,24 +229,20 @@ def collect_vasp(collect_dirs: List[Path]):
                 raise e from None
             data.append([vol / N, en / N, stress, spg])
 
-        data = np.array(data)
-
-        np.savetxt(
-            wd / "vol_stress.txt",
-            data[data[:, 0].argsort()],
-            header="Volume Energy stress spg",
-            fmt="%.6f",
-        )
+        dataf = pd.DataFrame(data, columns=["volume", "energy", "stress", "spg"])
+        dataf.sort_values(by=["volume"], inplace=True)
+        dataf.to_csv(wd / "vol_stress.txt", sep=" ", float_format="%.6f", index=False)
 
 
 def run(args, graph: Optional[Path]):
+
     RECOMPUTE = args["recompute"]
     EQ = args["equation"]
     TRAIN_DIR = args["train_dir"]
     MTD_RUNS = args["mtds"]
     ABINIT_DIR = WORK_DIR if not args["abinit_dir"] else Path(args["abinit_dir"])
 
-    if RECOMPUTE and not graph:
+    if RECOMPUTE and args["potential"] is None and not graph:
         raise ValueError("Must input at least one graph if you want to recompute")
 
     collect_dirs = collect_data_dirs(ABINIT_DIR, reference=args["reference_structure"])
@@ -250,34 +251,55 @@ def run(args, graph: Optional[Path]):
         f"You are missing {len(collect_dirs) - len(COLORS)} more color(s)"
     )
     collect_vasp(collect_dirs)
-    fig_ev, reference_ev = plot_abinit_ev(collect_dirs, EQ, shift_ref=args["shift_ev"])
+    fig_ev, reference_ev, figm_ev, ax_ev = plot_abinit_ev(
+        collect_dirs, EQ, shift_ref=args["shift_ev"]
+    )
     fig_hp, reference_hp, figm_hp, ax_hp = plot_abinit_hp(
-        collect_dirs, eos=EQ, fit=False
+        collect_dirs, eos=EQ, fit=False, show_original_points=True
     )
 
-    if graph:
-        mod_lmp_in(graph)
+    if graph or args["potential"] is not None:
+
+        if args["potential"] == "deepmd":
+            mod_lmp_in(graph)
+            potential = "DEEPMD"
+            labels = ("DPMD",)
+        elif args["potential"] == "ace":
+            potential = "ACE"
+            labels = ("ACE",)
+        elif args["potential"] == "tersoff":
+            potential = "TERSOFF"
+            labels = ("TERSOFF", )
+        else:
+            raise NotImplementedError("potential not implemented")
 
         # calculate nnp
         if RECOMPUTE:
-            vasp_recompute()
+            vasp_recompute(lmp_binary=args["lmp"])
 
         lammpses = ("lammps",)  # , "gc_lammps")
-        labels = ("DPMD",)
 
-        collect_lmp(collect_dirs, lammpses)
+        collect_lmp(collect_dirs, lammpses, True if args["potential"] == "ace" else False)
 
         fig_ev = plot_predicted_ev(
             collect_dirs, EQ, lammpses, labels, fig_ev, reference_ev
         )
+
         fig_ev.update_layout(
-            title="E-V diagram for DeepMd potential vs Ab Initio calculations"
+            title=f"E-V diagram for {potential} potential vs Ab Initio calculations"
         )
         fig_hp = plot_predicted_hp(
-            collect_dirs, lammpses, labels, fig_hp, reference_hp, eos=EQ, fit=True
+            collect_dirs,
+            lammpses,
+            labels,
+            fig_hp,
+            reference_hp,
+            eos=EQ,
+            fit=False,
+            show_original_points=False,
         )
         fig_hp.update_layout(
-            title="H(p) plot for DeepMd potential vs Ab Initio calculations"
+            title=f"H(p) plot for {potential} potential vs Ab Initio calculations"
         )
         # plot_mpl(collect_dirs)
     else:
@@ -287,13 +309,15 @@ def run(args, graph: Optional[Path]):
     fig_ev.update_layout(
         xaxis_title=f"V [{ANGSTROM}{POW3} / atom]",
         yaxis_title="E [eV / atom]",
-        #template="minimovka",
+        # template="minimovka",
     )
     fig_hp.update_layout(
         xaxis_title=f"p [GPa]",
         yaxis_title=f"{DELTA}H [eV / atom], {collect_dirs[0].name} is reference",
-        #template="minimovka",
+        # template="minimovka",
     )
+
+    #  matplotlib H(p)
     ax_hp.set(
         xlabel=f"p [GPa]",
         ylabel=f"{DELTA}H [eV / atom], {collect_dirs[0].name} is reference",
@@ -301,17 +325,43 @@ def run(args, graph: Optional[Path]):
     ax_hp.grid(linewidth=0.5)
     ax_hp.yaxis.set_minor_locator(AutoMinorLocator())
     ax_hp.xaxis.set_minor_locator(AutoMinorLocator())
-    ax_hp.set_xlim(args["x_span_hp"][0], args["x_span_hp"][1])
-    ax_hp.set_ylim(args["y_span_hp"][0], args["y_span_hp"][1])
+    if args["x_span_hp"] is not None:
+        ax_hp.set_xlim(args["x_span_hp"][0], args["x_span_hp"][1])
+    if args["y_span_hp"] is not None:
+        ax_hp.set_ylim(args["y_span_hp"][0], args["y_span_hp"][1])
     figm_hp.legend(loc="upper left", bbox_to_anchor=(0.25, 0.35), borderaxespad=0.0)
+
+    # matplotlib E(V)
+    ax_ev.set(
+        xlabel=f"$V [\AA^3 / atom] $",
+        ylabel=f"E [eV / atom]",
+    )
+    #ax_ev.grid(linewidth=0.5)
+    ax_ev.yaxis.set_minor_locator(AutoMinorLocator())
+    ax_ev.xaxis.set_minor_locator(AutoMinorLocator())
+    if args["x_span_ev"] is not None:
+        ax_ev.set_xlim(args["x_span_ev"][0], args["x_span_ev"][1])
+    if args["y_span_ev"] is not None:
+        ax_ev.set_ylim(args["y_span_ev"][0], args["y_span_ev"][1])
 
     if MTD_RUNS:
         plot_mtd_data(fig_ev, MTD_RUNS)
 
     if TRAIN_DIR:
-        plot_coverage_data(fig_ev, TRAIN_DIR, args["graph_cache"], args["error_type"])
+        plot_coverage_data(fig_ev, ax_ev, TRAIN_DIR, args["graph_cache"], args["error_type"])
 
-    filename = f"({graph.stem}-{args['reference_structure']}).html"
+    figm_ev.legend(loc='center left', ncol=1, bbox_to_anchor=(1.0, 0.53), prop={'size': 8})
+
+    if graph:
+        basename = graph.stem
+    elif args["potential"] == "ace":
+        basename = "ACE"
+    elif args["potential"] == "tersoff":
+        basename = "TERSOFF"
+    else:
+        raise NotImplementedError("potential not implemented")
+
+    filename = f"({basename}-{args['reference_structure']}).html"
 
     print(f"writing: {filename}")
     fig_ev.write_html(f"E-V{filename}", include_plotlyjs="cdn")
@@ -321,6 +371,11 @@ def run(args, graph: Optional[Path]):
     figm_hp.savefig(
         f"H-p{filename}".replace("html", "png"), dpi=500, bbox_inches="tight"
     )
+    figm_ev.savefig(
+        f"E-V{filename}".replace("html", "png"), dpi=500, bbox_inches="tight"
+    )
+    import matplotlib.pyplot as plt
+    plt.show()
 
 
 def compare_ev(args: dict):

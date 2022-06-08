@@ -46,17 +46,12 @@ def plot_predicted_hp(
     *,
     eos: str,
     fit: bool,
+    show_original_points=True,
 ) -> go.Figure:
 
     for wd, c in zip(collect_dirs, COLORS[: len(collect_dirs)]):
         for l, lab, ls in zip(lammpses, labels, ("dash", "dot", "dashdot", "-")):
-            df = pd.read_table(
-                wd / l / "vol_stress.txt",
-                sep=r"\s+",
-                names=["volume", "energy", "stress"],
-                header=0,
-                comment="#",
-            )
+            df = pd.read_table(wd / l / "vol_stress.txt", sep=" ")
 
             if fit:
                 vasp_state = EquationOfState(
@@ -83,22 +78,21 @@ def plot_predicted_hp(
                     legendgroup=c,
                 )
             )
-            """
-            fig.add_trace(
-                go.Scattergl(
-                    x=df["stress"],
-                    y=df["enthalpy"] - reference(df["stress"]),
-                    name=f"{wd.name} - {lab}",
-                    mode="markers",
-                    showlegend=False,
-                    legendgroup=c,
-                    marker_line_width=3,
-                    marker_symbol="circle-open",
-                    marker_size=25,
-                    line=dict(color=c, width=3),
+            if show_original_points:
+                fig.add_trace(
+                    go.Scattergl(
+                        x=df["stress"],
+                        y=df["enthalpy"] - reference(df["stress"]),
+                        name=f"{wd.name} - {lab}",
+                        mode="markers",
+                        showlegend=False,
+                        legendgroup=c,
+                        marker_line_width=3,
+                        marker_symbol="circle-open",
+                        marker_size=25,
+                        line=dict(color=c, width=3),
+                    )
                 )
-            )
-            """
 
     return fig
 
@@ -114,13 +108,7 @@ def plot_predicted_ev(
 
     for wd, c in zip(collect_dirs, COLORS[: len(collect_dirs)]):
         for l, lab, ls in zip(lammpses, labels, ("dash", "dot", "dashdot", "-")):
-            lmps_data = pd.read_table(
-                wd / l / "vol_stress.txt",
-                sep=r"\s+",
-                names=["volume", "energy", "stress"],
-                header=0,
-                comment="#",
-            )
+            lmps_data = pd.read_table(wd / l / "vol_stress.txt", sep=" ")
 
             lmps_state = EquationOfState(
                 lmps_data["volume"].to_numpy(), lmps_data["energy"].to_numpy(), eos=eos
@@ -130,6 +118,7 @@ def plot_predicted_ev(
             except RuntimeError:
                 print(f"{Fore.RED}Could not fit equation of state for {wd.name}")
                 continue
+
             fig.add_trace(
                 go.Scattergl(  # type: ignore
                     x=x / reference["v0"],

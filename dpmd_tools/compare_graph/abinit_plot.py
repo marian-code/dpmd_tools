@@ -17,6 +17,7 @@ def plot_abinit_ev(
 ) -> Tuple[go.Figure, Dict[str, float]]:
 
     fig = go.Figure()
+    figm, ax = plt.subplots(constrained_layout=True)
     reference = None
 
     for wd, c in zip(collect_dirs, COLORS[: len(collect_dirs)]):
@@ -28,6 +29,10 @@ def plot_abinit_ev(
             header=0,
             comment="#",
         )
+
+        if vasp_data.shape[0] == 0:
+            print(f"no data present for phase {wd.name}")
+            continue
 
         vasp_state = EquationOfState(
             vasp_data["volume"].to_numpy(), vasp_data["energy"].to_numpy(), eos=eos
@@ -72,10 +77,20 @@ def plot_abinit_ev(
             )
         )
 
-    return fig, reference
+        #ax.scatter(vasp_data["volume"] / reference["v0"], vasp_data["energy"] - reference["e0"],, s=2, c=c)
+        ax.plot(
+            x / reference["v0"],
+            y - reference["e0"],            
+            label=f"{wd.name}",
+            color=c,
+            linestyle="solid",
+            linewidth=1,
+        )
+
+    return fig, reference, figm, ax
 
 
-def plot_abinit_hp(collect_dirs: List[Path], *, eos: str, fit: bool) -> go.Figure:
+def plot_abinit_hp(collect_dirs: List[Path], *, eos: str, fit: bool, show_original_points: bool) -> go.Figure:
 
     fig = go.Figure()
     figm, ax = plt.subplots()
@@ -84,13 +99,11 @@ def plot_abinit_hp(collect_dirs: List[Path], *, eos: str, fit: bool) -> go.Figur
 
     for wd, c in zip(collect_dirs, COLORS[: len(collect_dirs)]):
 
-        df = pd.read_table(
-            wd / "vasp" / "vol_stress.txt",
-            sep=r"\s+",
-            names=["volume", "energy", "stress", "spg"],
-            header=0,
-            comment="#",
-        )
+        df = pd.read_table(wd / "vasp" / "vol_stress.txt", sep=" ")
+        
+        if df.shape[0] == 0:
+            print(f"no data present for phase {wd.name}")
+            continue
 
         if fit:
             vasp_state = EquationOfState(
@@ -129,18 +142,24 @@ def plot_abinit_hp(collect_dirs: List[Path], *, eos: str, fit: bool) -> go.Figur
                 legendgroup=f"vasp_{c}",
             )
         )
-        fig.add_trace(
-            go.Scattergl(  # type: ignore
-                x=df["stress"],
-                y=df["enthalpy"] - reference(df["stress"]),
-                name=f"{wd.name} - Ab initio (VASP)",
-                mode="markers",
-                showlegend=False,
-                line=dict(color=c, width=3),
-                marker_size=25,
-                legendgroup=f"vasp_{c}",
+        if show_original_points:
+            fig.add_trace(
+                go.Scattergl(  # type: ignore
+                    x=df["stress"],
+                    y=df["enthalpy"] - reference(df["stress"]),
+                    name=f"{wd.name} - Ab initio (VASP)",
+                    mode="markers",
+                    showlegend=False,
+                    line=dict(color=c, width=3),
+                    marker_size=25,
+                    legendgroup=f"vasp_{c}",
+                    hovertext=[
+                        f"{wd.name}<br>Ab initio (VASP)<br>p={p:.3f}<br>V={v:.3f}<br>"
+                        f"E={e:.3f}<br>H={h:.3f}<br>spg={Spacegroup(int(s)).symbol:s}"
+                        for v, e, p, s, h in df.itertuples(index=False)
+                    ],
+                )
             )
-        )
 
         fig.update_layout(xaxis=dict(tickmode="linear", tick0=0, dtick=10))
 

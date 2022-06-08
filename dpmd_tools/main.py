@@ -1,5 +1,6 @@
 import argparse
 from pathlib import Path
+from shutil import which
 
 from ssh_utilities import Connection
 
@@ -409,6 +410,13 @@ def ev_parser(parser: argparse.ArgumentParser):
         "(server@/path/to/file). Wildcard '*' is also accepted.",
     )
     parser.add_argument(
+        "-p",
+        "--potential",
+        default=None,
+        choices=("ace", "deepmd", "tersoff", "none"),
+        help="specify potential, id not specified than only plot ab initio graphs"
+    )
+    parser.add_argument(
         "-r",
         "--recompute",
         default=False,
@@ -479,7 +487,7 @@ def ev_parser(parser: argparse.ArgumentParser):
     parser.add_argument(
         "-xh",
         "--x-span-hp",
-        default=(-10, 40),
+        default=None,
         nargs=2,
         type=float,
         help="set the span of x axis in the H(p) graph, applies only to png"
@@ -487,10 +495,33 @@ def ev_parser(parser: argparse.ArgumentParser):
     parser.add_argument(
         "-yh",
         "--y-span-hp",
-        default=(-1.5, 1),
+        default=None,
         nargs=2,
         type=float,
         help="set the span of y axis in the H(p) graph, applies only to png"
+    )
+    parser.add_argument(
+        "-xe",
+        "--x-span-ev",
+        default=None,
+        nargs=2,
+        type=float,
+        help="set the span of x axis in the E(V) graph, applies only to png"
+    )
+    parser.add_argument(
+        "-ye",
+        "--y-span-ev",
+        default=None,
+        nargs=2,
+        type=float,
+        help="set the span of y axis in the E(V) graph, applies only to png"
+    )
+    parser.add_argument(
+        "-l",
+        "--lmp",
+        default=which("lmp"),
+        type=str,
+        help="path to lammps executable"
     )
 
 
@@ -652,6 +683,21 @@ def singlepoint_parser(parser: argparse.ArgumentParser):
         choices=("VASP", "QE"),
         default="VASP",
         help="choose what code to run",
+    )
+    parser.add_argument(
+        "-f",
+        "--filter-stream",
+        action="store_true",
+        default=False,
+        help="filter electornic optimizatio info from VASP screen output "
+        "and color important lines to make it more readable. Does not work with QE"
+    )
+    parser.add_argument(
+        "-n",
+        "--nsw",
+        default=None,
+        type=int,
+        help="Usefull when '--filter-stream' is used. "
     )
 
 

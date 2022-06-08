@@ -6,6 +6,7 @@ from atexit import register
 
 #logging.basicConfig(level=logging.DEBUG)
 from ssh_utilities import SSHPath
+from ssh_utilities.remote.remote import SSHConnection
 
 WORK_DIR = Path.cwd()
 
@@ -26,6 +27,7 @@ def upload(args: dict):
 
     # init cconnection
     c = Connection(args["server"], local=False, quiet=True)
+    c: SSHConnection
     register(c.close, quiet=True)
 
     if server:

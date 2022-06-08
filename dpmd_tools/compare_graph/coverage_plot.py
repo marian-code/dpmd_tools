@@ -2,12 +2,19 @@ import plotly.graph_objects as go
 from ssh_utilities import Connection
 from pathlib import Path
 from ssh_utilities import SSHPath
-from typing import List, Iterator, Dict, Literal, Optional, Union
+from typing import List, Iterator, Dict, Optional, Union
+from matplotlib.axes import Axes
+import matplotlib.pyplot as plt
 
 import numpy as np
 from tqdm import tqdm
 from fnmatch import fnmatch
 from dpdata import LabeledSystem
+
+try:
+    from typing import Literal  # type: ignore
+except ImportError:
+    from typing_extensions import Literal
 
 
 def get_coverage(
@@ -70,19 +77,22 @@ def get_coverage(
             name = d.parent.name.replace("data_", "")
             cache_root = None
 
-        if not cache_root:
-            raise FileNotFoundError(
-                "we do not know where to look for prediction cache "
-                "in this data structure"
-            )
-        cache_dirs = [
-            d for d in cache_root.glob("**") if fnmatch(d.name, graph_glob)
-        ]
+        if graph_glob:
+            if not cache_root:
+                raise FileNotFoundError(
+                    "we do not know where to look for prediction cache "
+                    "in this data structure"
+                )
+            cache_dirs = [
+                d for d in cache_root.glob("**") if fnmatch(d.name, graph_glob)
+            ]
 
-        if error_type == "energy":
-            error = get_e_std(cache_dirs)
-        elif error_type == "force":
-            error = get_f_std(cache_dirs)
+            if error_type == "energy":
+                error = get_e_std(cache_dirs)
+            elif error_type == "force":
+                error = get_f_std(cache_dirs)
+        else:
+            error = np.array([])
 
         if name in data:
             data[name]["energy"] = np.concatenate((data[name]["energy"], energies))
@@ -128,6 +138,7 @@ def get_e_std(cache_dirs: List[Path]):
 
 def plot_coverage_data(
     fig: go.Figure,
+    ax: Axes,
     train_dirs: List[str],
     graph_glob: Optional[str],
     error_type: Literal["energy", "force"]
@@ -185,6 +196,7 @@ def plot_coverage_data(
                         text=str_labels,
                     )
                 )
+                ax.scatter(cdata["volume"], y=cdata["energy"], label=name, s=0.5)
 
             show = False
 
