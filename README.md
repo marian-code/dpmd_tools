@@ -2,6 +2,16 @@
 
 [![Checked with mypy](http://www.mypy-lang.org/static/mypy_badge.svg)](http://mypy-lang.org/)
 
+# Purpose
+
+Main aim is to create a reliable versioning scheme for data that goes into training of DeepMD neural network potential. This scheme is devided into separate steps:
+
+1. load and standardize data from multiple different sources
+2. specify conditions to update dataset after each training iteration
+3. version data a record which have been used for training and which have not, this enables us to move forward and backward in iterations similarly to git versioning
+4. quantify training errors and monitor the quality of the fit
+5. log everything so we can search backwards what has been done in each step
+
 # dpmd-tools
 
 A collection of utilities aimed mainly at manipulating deep MD datasets
